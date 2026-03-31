@@ -1,0 +1,19 @@
+{
+  "name": "forklift",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@polkadot-api/observable-client": "^0.18.2",
+    "@polkadot-api/substrate-client": "^0.6.0",
+    "@polkadot-api/ws-middleware": "^0.2.3",
+    "@polkadot-api/ws-provider": "^0.8.1",
+    "rxjs": "^7.8.2"
+  }
+}

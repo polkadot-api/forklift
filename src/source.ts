@@ -1,0 +1,130 @@
+import { createClient } from "@polkadot-api/substrate-client";
+import { middleware } from "@polkadot-api/ws-middleware";
+import { getWsProvider } from "@polkadot-api/ws-provider";
+import {
+  Binary,
+  blockHeader,
+  type BlockHeader,
+  type HexString,
+} from "@polkadot-api/substrate-bindings";
+
+export type { BlockHeader, HexString };
+
+export interface Source {
+  /** The block hash this source is pinned to */
+  blockHash: HexString;
+
+  /** The block header */
+  header: BlockHeader;
+
+  /** Get a single storage value */
+  getStorage(key: HexString): Promise<Uint8Array | null>;
+
+  /** Get multiple storage values */
+  getStorageBatch(keys: HexString[]): Promise<(Uint8Array | null)[]>;
+
+  /** Get all storage entries under a prefix */
+  getStorageDescendants(
+    prefix: HexString
+  ): Promise<Record<HexString, Uint8Array>>;
+
+  /** Disconnect from the source */
+  disconnect(): void;
+}
+
+export const createRemoteSource = async (
+  url: string | string[],
+  options: {
+    atBlock?: number | string;
+  } = {}
+): Promise<Source> => {
+  const substrateClient = createClient(
+    getWsProvider(url, {
+      middleware,
+    })
+  );
+  const archive = substrateClient.archive;
+
+  // Resolve the block hash
+  let blockHash: HexString;
+  if (options.atBlock === undefined) {
+    const finalizedHeight = await archive.finalizedHeight();
+    const hashes = await archive.hashByHeight(finalizedHeight);
+    const hash = hashes[0];
+    if (!hash) {
+      throw new Error(`No block found at finalized height ${finalizedHeight}`);
+    }
+    blockHash = hash;
+  } else if (typeof options.atBlock === "number") {
+    const hashes = await archive.hashByHeight(options.atBlock);
+    const hash = hashes[0];
+    if (!hash) {
+      throw new Error(`No block found at height ${options.atBlock}`);
+    }
+    blockHash = hash;
+  } else {
+    blockHash = options.atBlock;
+  }
+
+  // Fetch and decode the header
+  const headerHex = await archive.header(blockHash);
+  const header = blockHeader.dec(Binary.fromHex(headerHex));
+
+  return {
+    blockHash,
+    header,
+
+    async getStorage(key: HexString): Promise<Uint8Array | null> {
+      const value = await archive.storage(blockHash, "value", key, null);
+      return value ? Binary.fromHex(value) : null;
+    },
+
+    async getStorageBatch(keys: HexString[]): Promise<(Uint8Array | null)[]> {
+      return new Promise((resolve, reject) => {
+        const results = new Map<string, Uint8Array | null>();
+        const inputs = keys.map((key) => ({ key, type: "value" as const }));
+
+        const unsub = archive.storageSubscription(
+          blockHash,
+          inputs,
+          null,
+          (item) => {
+            results.set(
+              item.key,
+              item.value ? Binary.fromHex(item.value) : null
+            );
+          },
+          reject,
+          () => {
+            resolve(keys.map((key) => results.get(key) ?? null));
+            unsub();
+          }
+        );
+      });
+    },
+
+    async getStorageDescendants(
+      prefix: HexString
+    ): Promise<Record<HexString, Uint8Array>> {
+      const entries = await archive.storage(
+        blockHash,
+        "descendantsValues",
+        prefix,
+        null
+      );
+      const result: Record<HexString, Uint8Array> = {};
+      for (const { key, value } of entries) {
+        result[key] = Binary.fromHex(value);
+      }
+      return result;
+    },
+
+    disconnect(): void {
+      substrateClient.destroy();
+    },
+  };
+};
+
+export const createGenesisSource = async () => {
+  throw new Error("Not implemented");
+};
