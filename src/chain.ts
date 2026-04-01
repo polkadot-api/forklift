@@ -1,5 +1,15 @@
 import { BehaviorSubject, type Observable } from "rxjs";
 import type { HexString, Source } from "./source";
+import {
+  createRoot,
+  deleteValue,
+  forEachDescendant,
+  getDescendantValues,
+  getNode,
+  insertValue,
+  type StorageNode,
+} from "./storage";
+import { Binary } from "@polkadot-api/substrate-bindings";
 
 export type { HexString };
 
@@ -8,11 +18,11 @@ export interface Block {
   parent: HexString;
   height: number;
   code: Uint8Array;
-  storageDiff: () => Promise<Record<HexString, Uint8Array | null>>;
+  storageRoot: StorageNode;
 }
 
 export interface NewBlockOptions {
-  type: "best" | "finalized";
+  type: "best" | "finalized" | "fork";
   parent: HexString;
   unsafeBlockHeight: number;
   transactions: Uint8Array[];
@@ -34,23 +44,28 @@ export interface Chain {
     hash: HexString,
     changes: Record<HexString, Uint8Array | null>
   ) => void;
-}
 
-interface ChainState {
-  blocks: Record<HexString, Block>;
-  pendingStorage: Record<HexString, Record<HexString, Uint8Array | null>>;
+  getStorage: (hash: HexString, key: HexString) => Promise<Uint8Array | null>;
+  getStorageBatch: (
+    hash: HexString,
+    keys: HexString[]
+  ) => Promise<(Uint8Array | null)[]>;
+  getStorageDescendants: (
+    hash: HexString,
+    prefix: HexString
+  ) => Promise<Record<HexString, Uint8Array>>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-const EMPTY = {};
-const lazyValue = <T>(cb: () => T | Promise<T>) => {
-  let value: any = EMPTY;
-  return (): Promise<T> => {
-    if (value === EMPTY) value = cb();
-    return Promise.resolve(value);
-  };
-};
+// const EMPTY = {};
+// const lazyValue = <T>(cb: () => T | Promise<T>) => {
+//   let value: any = EMPTY;
+//   return (): Promise<T> => {
+//     if (value === EMPTY) value = cb();
+//     return Promise.resolve(value);
+//   };
+// };
 
 export const createChain = async (
   sourceP: Source | Promise<Source>
@@ -62,6 +77,12 @@ export const createChain = async (
   if (!code) {
     throw new Error("No runtime code found at source block");
   }
+  const storageRoot = insertValue(
+    createRoot(),
+    Binary.fromHex(CODE_KEY),
+    (CODE_KEY.length - 2) * 2,
+    code
+  );
 
   // Create the initial block from the source
   const initialBlock: Block = {
@@ -70,7 +91,7 @@ export const createChain = async (
       "0x0000000000000000000000000000000000000000000000000000000000000000",
     height: source.header.number,
     code,
-    storageDiff: async () => ({}),
+    storageRoot,
   };
 
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({
@@ -124,11 +145,161 @@ export const createChain = async (
     changes: Record<HexString, Uint8Array | null>
   ): void => {
     const block = assertBlock(hash);
-    const original = block.storageDiff;
-    block.storageDiff = lazyValue(async () => ({
-      ...(await original()),
-      ...changes,
-    }));
+    for (const key in changes) {
+      const binKey = Binary.fromHex(key);
+      if (changes[key]) {
+        block.storageRoot = insertValue(
+          block.storageRoot,
+          binKey,
+          binKey.length * 2,
+          changes[key]
+        );
+      } else {
+        block.storageRoot = deleteValue(
+          block.storageRoot,
+          binKey,
+          binKey.length * 2
+        );
+      }
+    }
+  };
+
+  const getStorage = async (
+    hash: HexString,
+    key: HexString
+  ): Promise<Uint8Array | null> => {
+    const block = assertBlock(hash);
+    const binKey = Binary.fromHex(key);
+    const node =
+      getNode(block.storageRoot, binKey, binKey.length * 2) ??
+      // The initialBlock's storage might mutate as data is loaded from source
+      // and because of the immutable storage structure, newer blocks won't see that state.
+      getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
+
+    if (node?.value !== undefined) {
+      return node.value;
+    }
+
+    const sourceResult = await source.getStorage(key);
+    initialBlock.storageRoot = insertValue(
+      initialBlock.storageRoot,
+      binKey,
+      binKey.length * 2,
+      sourceResult
+    );
+    return sourceResult;
+  };
+
+  const getStorageBatch = async (
+    hash: HexString,
+    keys: HexString[]
+  ): Promise<(Uint8Array | null)[]> => {
+    const block = assertBlock(hash);
+
+    const keysIndexed = keys.map((key, idx) => ({ key, idx }));
+    const pending = new Array<{
+      binKey: Uint8Array;
+      key: HexString;
+      idx: number;
+    }>();
+
+    const result = keysIndexed.map(({ key, idx }) => {
+      const binKey = Binary.fromHex(key);
+      const node =
+        getNode(block.storageRoot, binKey, binKey.length * 2) ??
+        // The initialBlock's storage might mutate as data is loaded from source
+        // and because of the immutable storage structure, newer blocks won't see that state.
+        getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
+
+      if (node?.value !== undefined) {
+        return node.value;
+      }
+      pending.push({ key, idx, binKey });
+      return null;
+    });
+
+    const loadedResults = await source.getStorageBatch(
+      pending.map(({ key }) => key)
+    );
+    loadedResults.forEach((res, i) => {
+      const { idx, binKey } = pending[i]!;
+      initialBlock.storageRoot = insertValue(
+        initialBlock.storageRoot,
+        binKey,
+        binKey.length * 2,
+        res
+      );
+      result[idx] = res;
+    });
+
+    return result;
+  };
+
+  const getStorageDescendants = async (
+    hash: HexString,
+    prefix: HexString
+  ): Promise<Record<HexString, Uint8Array>> => {
+    const block = assertBlock(hash);
+    const binPrefix = Binary.fromHex(prefix);
+
+    const getNodeDescendants = (node: StorageNode | null) =>
+      node
+        ? Object.fromEntries(
+            getDescendantValues(node, binPrefix, binPrefix.length * 2).map(
+              ({ key, value }) => [Binary.toHex(key), value]
+            )
+          )
+        : {};
+
+    const blockNode = getNode(
+      block.storageRoot,
+      binPrefix,
+      binPrefix.length * 2
+    );
+    if (blockNode?.exhaustive) {
+      return getNodeDescendants(blockNode);
+    }
+
+    let rootNode = getNode(
+      initialBlock.storageRoot,
+      binPrefix,
+      binPrefix.length * 2
+    );
+    if (!rootNode?.exhaustive) {
+      const sourceDescendants = await source.getStorageDescendants(prefix);
+      if (!sourceDescendants.length)
+        initialBlock.storageRoot = insertValue(
+          initialBlock.storageRoot,
+          binPrefix,
+          binPrefix.length * 2,
+          null
+        );
+      for (const key in sourceDescendants) {
+        const binKey = Binary.fromHex(key);
+        initialBlock.storageRoot = insertValue(
+          initialBlock.storageRoot,
+          binKey,
+          binKey.length * 2,
+          sourceDescendants[key]!
+        );
+      }
+      // mark node as exhaustive
+      rootNode = getNode(
+        initialBlock.storageRoot,
+        binPrefix,
+        binPrefix.length * 2
+      )!;
+      rootNode.exhaustive = true;
+      forEachDescendant(rootNode, (node) => (node.exhaustive = true));
+    }
+
+    // There's a temptation to propagate this exhaustive to the blockNode
+    // but then it could mess up storage diffs.
+
+    return {
+      ...getNodeDescendants(rootNode),
+      ...getNodeDescendants(blockNode),
+    };
   };
 
   const newBlock = (_opts?: Partial<NewBlockOptions>): void => {
@@ -144,5 +315,8 @@ export const createChain = async (
     changeBest,
     changeFinalized,
     setStorage,
+    getStorage,
+    getStorageBatch,
+    getStorageDescendants,
   };
 };
