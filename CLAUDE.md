@@ -37,7 +37,38 @@ interface Source {
 **Source types:**
 
 - `createRemoteSource(url, { atBlock? })` - connects to a polkadot-sdk node via WebSocket
-- Genesis source (TODO) - creates chain from scratch with provided storage
+- `createGenesisSource()` - creates chain from scratch with provided storage (TODO)
+
+### Storage (`src/storage.ts`)
+
+Immutable 16-way radix trie (nibble-based) for efficient storage management with structural sharing.
+
+```typescript
+interface StorageNode {
+  hash: Uint8Array; // Blake2128 hash of node contents
+  children: Array<StorageNode>; // 16 children (one per nibble)
+  value?: Uint8Array | null; // null = soft deleted
+  exhaustive?: boolean; // true = all descendants loaded from source
+}
+```
+
+**Key functions:**
+
+- `createRoot()` - create empty trie
+- `insertValue(root, key, nibbles, value)` - returns new trie with value inserted
+- `deleteValue(root, key, nibbles)` - soft delete (sets value to null, doesn't remove node)
+- `getNode(root, key, nibbles)` - traverse to node at key
+- `getDiff(base, other)` - compute storage diff between two tries
+- `getDescendantValues(node, prefix, nibbles)` - get all values under a prefix
+
+**Design decisions:**
+
+- Immutable updates with structural sharing - inserting returns a new root
+- Soft deletes (value = null) to distinguish "deleted" from "not loaded"
+- `exhaustive` flag marks when all descendants have been fetched from source
+- `exhaustive` must be preserved through insert/delete operations on path nodes
+- Hash computed via Blake2128 for quick equality checks
+- `getDiff` returns nibble counts for correctness, but Chain works with full bytes (can ignore)
 
 ### Chain (`src/chain.ts`)
 
@@ -46,10 +77,10 @@ Manages the block tree with multiple forks. Uses RxJS observables.
 ```typescript
 interface Block {
   hash: HexString;
-  parent: HexString | null; // null for the initial block from source
+  parent: HexString; // 0x000...000 for initial block
   height: number;
   code: Uint8Array;
-  storageDiff: Record<HexString, Uint8Array | null>; // null means deleted
+  storageRoot: StorageNode; // Immutable trie root for this block's state
 }
 
 interface Chain {
@@ -60,22 +91,26 @@ interface Chain {
   newBlock(opts?): void;
   changeBest(hash): void;
   changeFinalized(hash): void;
-  setStorage(hash, changes): void; // Stage storage changes for next block on this parent
+  setStorage(hash, changes): void;
+
+  // Storage queries (lazy-load from source)
+  getStorage(hash, key): Promise<Uint8Array | null>;
+  getStorageBatch(hash, keys): Promise<(Uint8Array | null)[]>;
+  getStorageDescendants(hash, prefix): Promise<Record<HexString, Uint8Array>>;
 }
 ```
-
-**Internal state:**
-
-- `blocks` - map of hash → Block
-- `pendingStorage` - map of hash → staged storage changes (applied when building child block)
 
 **Design decisions:**
 
 - `createChain(source)` is async - fetches runtime code from source at init
-- Initial block has `parent: null` and empty `storageDiff` (state comes from source)
-- `storageDiff` values can be `null` to represent deletions
-- `changeFinalized` validates the block is an ancestor of best, then prunes unreachable blocks
-- Pruning keeps: ancestors of finalized + descendants of finalized (active forks)
+- Each block has its own `storageRoot` trie - forks get independent state
+- Storage is **lazy-loaded**: queries check block's trie first, then fall back to source
+- The `initialBlock.storageRoot` is mutated as data loads from source
+- Newer blocks check both their own trie AND initialBlock's trie (for newly loaded data)
+- `setStorage` directly modifies a block's storageRoot (for staging changes)
+- `changeFinalized` validates the block is a descendant of current finalized
+- `changeBest` validates the block is a descendant of finalized
+- No block pruning - forklift is for short-lived test scenarios, not long-running nodes
 
 ### Forklift (`src/forklift.ts`)
 
@@ -84,11 +119,11 @@ The main entry point that mocks a polkadot-sdk node.
 ```typescript
 interface Forklift {
   serve: JsonRpcProvider; // JSON-RPC server for clients to connect
-  newBlock(opts?): void; // Create a new block
-  changeBest(hash): void; // Change best block
-  changeFinalized(hash): void; // Change finalized block
-  setStorage(changes): void; // Modify storage for next block
-  getStorageDiff(hash): Record<string, Uint8Array>;
+  newBlock(opts?): Promise<void>;
+  changeBest(hash): Promise<void>;
+  changeFinalized(hash): Promise<void>;
+  setStorage(hash, changes): Promise<void>;
+  getStorageDiff(hash): Promise<Record<string, Uint8Array>>;
   setBuildBlockMode(mode): void;
 }
 ```
@@ -101,6 +136,7 @@ interface Forklift {
 
 **NewBlockOptions** supports:
 
+- `type` - "best", "finalized", or "fork"
 - `parent` - which block to build on (enables forking)
 - `transactions` - extrinsics to include
 - `dmp`, `hrmp`, `ump` - parachain messages
@@ -110,7 +146,7 @@ interface Forklift {
 
 - `@polkadot-api/substrate-client` - Low-level substrate RPC client
 - `@polkadot-api/observable-client` - RxJS wrapper (currently unused, may be useful later)
-- `@polkadot-api/substrate-bindings` - SCALE codecs, `BlockHeader`, `Binary.fromHex/toHex`
+- `@polkadot-api/substrate-bindings` - SCALE codecs, `BlockHeader`, `Binary.fromHex/toHex`, `Blake2128`
 - `@polkadot-api/ws-provider` + `@polkadot-api/ws-middleware` - WebSocket transport
 - `rxjs` - Reactive streams for chain state
 
@@ -119,25 +155,28 @@ interface Forklift {
 - [x] `Source` interface defined
 - [x] `createRemoteSource` implemented using archive API
 - [ ] Genesis source
+- [x] `Storage` trie implementation
 - [x] `Chain` data structures and observables
 - [x] `Chain.changeBest`, `changeFinalized`, `setStorage`
+- [x] `Chain.getStorage`, `getStorageBatch`, `getStorageDescendants`
 - [ ] `Chain.newBlock` (requires smoldot)
-- [ ] `Forklift` implementation
+- [x] `Forklift` basic wiring (creates source + chain)
 - [ ] smoldot integration for runtime execution
 - [ ] JSON-RPC server (`serve`)
 
 ## Usage
 
 ```typescript
-import { createRemoteSource } from "./src/source";
+import { forklift } from "./src/forklift";
 
-const source = await createRemoteSource("wss://rpc.polkadot.io", {
-  atBlock: 12345678, // or hash, or omit for finalized
+const f = forklift({
+  source: {
+    type: "remote",
+    value: { url: "wss://rpc.polkadot.io", atBlock: 12345678 },
+  },
 });
 
-console.log(source.header.number);
-const value = await source.getStorage("0x...");
-source.disconnect();
+await f.changeBest("0x...");
 ```
 
 ## Runtime

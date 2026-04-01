@@ -69,8 +69,10 @@ export const insertValue = (
     const children = [...root.children];
     children[nibble] = createNodeValue(key, nibbles, value, offset + 1);
     return {
-      hash: getHash(children),
+      hash: getHash(children, root.value),
       children,
+      value: root.value,
+      exhaustive: root.exhaustive,
     };
   }
 
@@ -80,6 +82,7 @@ export const insertValue = (
     hash: getHash(children, root.value),
     children,
     value: root.value,
+    exhaustive: root.exhaustive,
   };
 };
 
@@ -136,6 +139,7 @@ export const deleteValue = (
     hash: getHash(children, root.value),
     children,
     value: root.value,
+    exhaustive: root.exhaustive,
   };
 };
 
@@ -255,4 +259,4 @@ export const forEachDescendant = (
 };
 
 const arrU8Eq = (a: Uint8Array, b: Uint8Array) =>
-  a.length === b.length && a.every((v, i) => b[v] === i);
+  a.length === b.length && a.every((v, i) => b[i] === v);
