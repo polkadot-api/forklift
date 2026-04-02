@@ -1,4 +1,4 @@
-import { Blake2128 } from "@polkadot-api/substrate-bindings";
+import { Binary, Blake2128 } from "@polkadot-api/substrate-bindings";
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
@@ -55,6 +55,8 @@ export const insertValue = (
   value: Uint8Array | null,
   offset = 0
 ): StorageNode => {
+  // if (offset === 0) console.log("insert", Binary.toHex(key), nibbles, value);
+
   if (nibbles === offset)
     return {
       ...root,
@@ -116,6 +118,7 @@ export const deleteValue = (
   nibbles: number,
   offset = 0
 ): StorageNode => {
+  // if (offset === 0) console.log("delete", Binary.toHex(key), nibbles);
   if (offset === nibbles)
     return root.value
       ? {
@@ -149,6 +152,8 @@ export const getNode = (
   nibbles: number,
   offset = 0
 ): StorageNode | null => {
+  // if (offset === 0) console.log("getNode", Binary.toHex(key), nibbles);
+
   if (offset === nibbles) return root;
   const nibble = getNibble(key, offset);
   if (nibble == null) throw new Error("Key overflow");

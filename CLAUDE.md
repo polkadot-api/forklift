@@ -142,12 +142,44 @@ interface Forklift {
 - `dmp`, `hrmp`, `ump` - parachain messages
 - `storage` - storage overrides
 
+### Executor (`src/executor.ts`)
+
+Wrapper around `@acala-network/chopsticks-executor` (smoldot-based WASM executor) for running runtime API calls locally.
+
+```typescript
+// Run a runtime API call
+const result = await runRuntimeCall({
+  chain,
+  hash: blockHash,
+  call: "Metadata_metadata_at_version",
+  params: "0x0f", // SCALE-encoded version 15
+  mockSignatureHost: false,
+});
+
+// Get runtime version without full execution
+const version = await getRuntimeVersion(chain, blockHash);
+```
+
+**Key functions:**
+
+- `runRuntimeCall({ chain, hash, call, params, mockSignatureHost? })` - execute a runtime API
+- `getRuntimeVersion(chain, hash)` - get runtime version info
+
+**JsCallback implementation:**
+
+- `getStorage` - delegates to `chain.getStorage`
+- `getNextKey` - uses `chain.getStorageDescendants` to find next key after given key
+- `offchainTimestamp` - returns `Date.now()`
+- `offchainRandomSeed` - returns crypto random bytes
+- `offchainGetStorage`, `offchainSubmitTransaction` - not implemented (return undefined/false)
+
 ## Dependencies
 
 - `@polkadot-api/substrate-client` - Low-level substrate RPC client
 - `@polkadot-api/observable-client` - RxJS wrapper (currently unused, may be useful later)
 - `@polkadot-api/substrate-bindings` - SCALE codecs, `BlockHeader`, `Binary.fromHex/toHex`, `Blake2128`
 - `@polkadot-api/ws-provider` + `@polkadot-api/ws-middleware` - WebSocket transport
+- `@acala-network/chopsticks-executor` - smoldot-based WASM executor for runtime calls
 - `rxjs` - Reactive streams for chain state
 
 ## Implementation Status
@@ -159,9 +191,9 @@ interface Forklift {
 - [x] `Chain` data structures and observables
 - [x] `Chain.changeBest`, `changeFinalized`, `setStorage`
 - [x] `Chain.getStorage`, `getStorageBatch`, `getStorageDescendants`
-- [ ] `Chain.newBlock` (requires smoldot)
+- [ ] `Chain.newBlock` (requires runtime execution)
 - [x] `Forklift` basic wiring (creates source + chain)
-- [ ] smoldot integration for runtime execution
+- [x] `Executor` - runtime API calls via chopsticks-executor
 - [ ] JSON-RPC server (`serve`)
 
 ## Usage

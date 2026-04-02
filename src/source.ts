@@ -1,6 +1,6 @@
 import { createClient } from "@polkadot-api/substrate-client";
 import { middleware } from "@polkadot-api/ws-middleware";
-import { getWsProvider } from "@polkadot-api/ws-provider";
+import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
 import {
   Binary,
   blockHeader,
@@ -41,6 +41,11 @@ export const createRemoteSource = async (
   const substrateClient = createClient(
     getWsProvider(url, {
       middleware,
+      logger: (evt) => {
+        if (evt.type !== SocketEvents.IN && evt.type !== SocketEvents.OUT) {
+          console.log(evt);
+        }
+      },
     })
   );
   const archive = substrateClient.archive;
@@ -67,8 +72,10 @@ export const createRemoteSource = async (
   }
 
   // Fetch and decode the header
+  console.log(`Loading block ${blockHash}`);
   const headerHex = await archive.header(blockHash);
   const header = blockHeader.dec(Binary.fromHex(headerHex));
+  console.log(`Initial block loaded`);
 
   return {
     blockHash,

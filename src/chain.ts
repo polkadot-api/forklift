@@ -37,6 +37,8 @@ export interface Chain {
   best$: Observable<HexString>;
   finalized$: Observable<HexString>;
 
+  getBlock: (hash: HexString) => Block | undefined;
+
   newBlock: (opts?: Partial<NewBlockOptions>) => void;
   changeBest: (hash: HexString) => void;
   changeFinalized: (hash: HexString) => void;
@@ -73,14 +75,17 @@ export const createChain = async (
   const source = await sourceP;
 
   // Fetch the runtime code from the source
+  console.log("Loading code");
   const code = await source.getStorage(CODE_KEY);
   if (!code) {
     throw new Error("No runtime code found at source block");
   }
+  console.log("Code loaded");
+
   const storageRoot = insertValue(
     createRoot(),
     Binary.fromHex(CODE_KEY),
-    (CODE_KEY.length - 2) * 2,
+    CODE_KEY.length - 2,
     code
   );
 
@@ -311,6 +316,7 @@ export const createChain = async (
     blocks$: blocks$.asObservable(),
     best$: best$.asObservable(),
     finalized$: finalized$.asObservable(),
+    getBlock,
     newBlock,
     changeBest,
     changeFinalized,
