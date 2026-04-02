@@ -1,4 +1,6 @@
+import { createClient } from "polkadot-api";
 import { forklift } from "./src/forklift";
+import { withLogsRecorder } from "polkadot-api/logs-provider";
 
 const fork = forklift({
   source: {
@@ -8,3 +10,5 @@ const fork = forklift({
     },
   },
 });
+
+const client = createClient(withLogsRecorder(console.log, fork.serve));

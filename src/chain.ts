@@ -1,5 +1,7 @@
-import { BehaviorSubject, type Observable } from "rxjs";
-import type { HexString, Source } from "./source";
+import { Binary } from "@polkadot-api/substrate-bindings";
+import { BehaviorSubject, Subject, type Observable } from "rxjs";
+import { getRuntimeVersion, type RuntimeVersion } from "./executor";
+import type { BlockHeader, HexString, Source } from "./source";
 import {
   createRoot,
   deleteValue,
@@ -9,7 +11,6 @@ import {
   insertValue,
   type StorageNode,
 } from "./storage";
-import { Binary } from "@polkadot-api/substrate-bindings";
 
 export type { HexString };
 
@@ -19,6 +20,10 @@ export interface Block {
   height: number;
   code: Uint8Array;
   storageRoot: StorageNode;
+  header: BlockHeader;
+  runtime: RuntimeVersion;
+  hasNewRuntime?: boolean;
+  children: HexString[];
 }
 
 export interface NewBlockOptions {
@@ -34,6 +39,7 @@ export interface NewBlockOptions {
 
 export interface Chain {
   blocks$: Observable<Record<HexString, Block>>;
+  newBlocks$: Observable<HexString>;
   best$: Observable<HexString>;
   finalized$: Observable<HexString>;
 
@@ -80,7 +86,9 @@ export const createChain = async (
   if (!code) {
     throw new Error("No runtime code found at source block");
   }
-  console.log("Code loaded");
+  console.log("Code loaded, getting runtime");
+  const initialRuntime = await getRuntimeVersion(code);
+  console.log("Runtime loaded");
 
   const storageRoot = insertValue(
     createRoot(),
@@ -95,13 +103,17 @@ export const createChain = async (
     parent:
       "0x0000000000000000000000000000000000000000000000000000000000000000",
     height: source.header.number,
+    header: source.header,
     code,
     storageRoot,
+    runtime: initialRuntime,
+    children: [],
   };
 
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({
     [source.blockHash]: initialBlock,
   });
+  const newBlocks$ = new Subject<HexString>();
   const best$ = new BehaviorSubject<HexString>(source.blockHash);
   const finalized$ = new BehaviorSubject<HexString>(source.blockHash);
 
@@ -314,6 +326,7 @@ export const createChain = async (
 
   return {
     blocks$: blocks$.asObservable(),
+    newBlocks$: newBlocks$.asObservable(),
     best$: best$.asObservable(),
     finalized$: finalized$.asObservable(),
     getBlock,

@@ -80,13 +80,8 @@ export const runRuntimeCall = async ({
 };
 
 export const getRuntimeVersion = async (
-  chain: Chain,
-  hash: HexString
+  code: Uint8Array
 ): Promise<RuntimeVersion> => {
-  const code = await chain.getStorage(hash, "0x3a636f6465");
-  if (!code) {
-    throw new Error(`No runtime code found at block ${hash}`);
-  }
   const codeHex = Binary.toHex(code);
 
   const version = await get_runtime_version(codeHex);

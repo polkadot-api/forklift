@@ -1,9 +1,9 @@
+import { Binary } from "@polkadot-api/substrate-bindings";
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { createChain, type NewBlockOptions } from "./chain";
 import { createGenesisSource, createRemoteSource } from "./source";
-import { runRuntimeCall } from "./executor";
 import { getDescendantValues, getDiff } from "./storage";
-import { Binary } from "@polkadot-api/substrate-bindings";
+import { createServer } from "./serve";
 
 type HexString = string;
 export enum BuildBlockMode {
@@ -54,22 +54,8 @@ export function forklift(params: ForkliftParams): Forklift {
       : createGenesisSource();
   const chain = createChain(source);
 
-  Promise.all([chain, source])
-    .then(([chain, source]) => {
-      console.log("loading metadata");
-      return runRuntimeCall({
-        chain,
-        hash: source.blockHash,
-        call: "Metadata_metadata_at_version",
-        params: "0x0f000000",
-      });
-    })
-    .then(
-      (r) => console.log(r.length),
-      (e) => console.error(e)
-    );
-
   return {
+    serve: createServer(chain),
     newBlock: (opts) => chain.then((c) => c.newBlock(opts)),
     changeBest: (hash) => chain.then((c) => c.changeBest(hash)),
     changeFinalized: (hash) => chain.then((c) => c.changeFinalized(hash)),
@@ -91,7 +77,7 @@ export function forklift(params: ForkliftParams): Forklift {
             diff.insert,
             new Uint8Array(),
             0
-          ).map(({ key, value }) => [Binary.toHex(key), null]);
+          ).map(({ key, value }) => [Binary.toHex(key), value]);
           const deletes = diff.deleteValues.map(({ key }) => [
             Binary.toHex(key),
             null,

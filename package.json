@@ -15,6 +15,7 @@
     "@polkadot-api/substrate-client": "^0.6.0",
     "@polkadot-api/ws-middleware": "^0.2.3",
     "@polkadot-api/ws-provider": "^0.8.1",
+    "polkadot-api": "2.0.0-rc.5",
     "rxjs": "^7.8.2"
   }
 }
