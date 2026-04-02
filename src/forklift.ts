@@ -1,11 +1,10 @@
-import { Binary } from "@polkadot-api/substrate-bindings";
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
+import { Binary, type HexString } from "polkadot-api";
 import { createChain, type NewBlockOptions } from "./chain";
-import { createGenesisSource, createRemoteSource } from "./source";
-import { getDescendantValues, getDiff } from "./storage";
 import { createServer } from "./serve";
+import { createGenesisSource, createRemoteSource } from "./source";
+import { getDescendantNodes, getDiff } from "./storage";
 
-type HexString = string;
 export enum BuildBlockMode {
   Batch = "Batch",
   Instant = "Instant",
@@ -73,7 +72,7 @@ export function forklift(params: ForkliftParams): Forklift {
             throw new Error(`Parent block not loaded`);
           }
           const diff = getDiff(parent.storageRoot, target.storageRoot);
-          const inserts = getDescendantValues(
+          const inserts = getDescendantNodes(
             diff.insert,
             new Uint8Array(),
             0

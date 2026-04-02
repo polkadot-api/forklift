@@ -1,10 +1,10 @@
 import {
-  run_task,
   get_runtime_version,
+  run_task,
   type JsCallback,
 } from "@acala-network/chopsticks-executor";
-import { Binary } from "@polkadot-api/substrate-bindings";
-import type { Chain, HexString } from "./chain";
+import { Binary, type HexString } from "polkadot-api";
+import type { Chain } from "./chain";
 
 export interface ExecutorParams {
   chain: Chain;
@@ -91,8 +91,8 @@ export const getRuntimeVersion = async (
 const createJsCallback = (chain: Chain, hash: HexString): JsCallback => {
   return {
     async getStorage(key: HexString): Promise<string | undefined> {
-      const value = await chain.getStorage(hash, key);
-      return value ? Binary.toHex(value) : undefined;
+      const node = await chain.getStorage(hash, key);
+      return node.value ? Binary.toHex(node.value) : undefined;
     },
 
     async getNextKey(

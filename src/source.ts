@@ -1,14 +1,8 @@
 import { createClient } from "@polkadot-api/substrate-client";
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
-import {
-  Binary,
-  blockHeader,
-  type BlockHeader,
-  type HexString,
-} from "@polkadot-api/substrate-bindings";
-
-export type { BlockHeader, HexString };
+import { Binary, type BlockHeader, type HexString } from "polkadot-api";
+import { blockHeader } from "@polkadot-api/substrate-bindings";
 
 export interface Source {
   /** The block hash this source is pinned to */

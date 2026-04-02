@@ -1,4 +1,4 @@
-import { Binary, Blake2128 } from "@polkadot-api/substrate-bindings";
+import { Blake2128 } from "@polkadot-api/substrate-bindings";
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
@@ -229,25 +229,25 @@ export const getDiff = (
   };
 };
 
-export const getDescendantValues = (
+export const getDescendantNodes = (
   node: StorageNode,
   prefix: Uint8Array,
   nibbles: number
-): Array<{ key: Uint8Array; nibbles: number; value: Uint8Array }> => {
+): Array<{ key: Uint8Array; nibbles: number; node: StorageNode }> => {
   let result = new Array<{
     key: Uint8Array;
     nibbles: number;
-    value: Uint8Array;
+    node: StorageNode;
   }>();
   if (node.value) {
-    result.push({ key: prefix, nibbles, value: node.value });
+    result.push({ key: prefix, nibbles, node });
   }
 
   node.children.forEach((child, i) => {
     const childPrefix = setNibble(prefix, nibbles, i);
     result = [
       ...result,
-      ...getDescendantValues(child, childPrefix, nibbles + 1),
+      ...getDescendantNodes(child, childPrefix, nibbles + 1),
     ];
   });
   return result;

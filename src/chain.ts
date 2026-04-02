@@ -1,18 +1,16 @@
-import { Binary } from "@polkadot-api/substrate-bindings";
+import { Binary, type BlockHeader, type HexString } from "polkadot-api";
 import { BehaviorSubject, Subject, type Observable } from "rxjs";
 import { getRuntimeVersion, type RuntimeVersion } from "./executor";
-import type { BlockHeader, HexString, Source } from "./source";
+import type { Source } from "./source";
 import {
   createRoot,
   deleteValue,
   forEachDescendant,
-  getDescendantValues,
+  getDescendantNodes,
   getNode,
   insertValue,
   type StorageNode,
 } from "./storage";
-
-export type { HexString };
 
 export interface Block {
   hash: HexString;
@@ -53,15 +51,15 @@ export interface Chain {
     changes: Record<HexString, Uint8Array | null>
   ) => void;
 
-  getStorage: (hash: HexString, key: HexString) => Promise<Uint8Array | null>;
+  getStorage: (hash: HexString, key: HexString) => Promise<StorageNode>;
   getStorageBatch: (
     hash: HexString,
     keys: HexString[]
-  ) => Promise<(Uint8Array | null)[]>;
+  ) => Promise<StorageNode[]>;
   getStorageDescendants: (
     hash: HexString,
     prefix: HexString
-  ) => Promise<Record<HexString, Uint8Array>>;
+  ) => Promise<Record<HexString, StorageNode>>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -184,7 +182,7 @@ export const createChain = async (
   const getStorage = async (
     hash: HexString,
     key: HexString
-  ): Promise<Uint8Array | null> => {
+  ): Promise<StorageNode> => {
     const block = assertBlock(hash);
     const binKey = Binary.fromHex(key);
     const node =
@@ -194,7 +192,7 @@ export const createChain = async (
       getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
 
     if (node?.value !== undefined) {
-      return node.value;
+      return node;
     }
 
     const sourceResult = await source.getStorage(key);
@@ -204,13 +202,13 @@ export const createChain = async (
       binKey.length * 2,
       sourceResult
     );
-    return sourceResult;
+    return getNode(initialBlock.storageRoot, binKey, binKey.length * 2)!;
   };
 
   const getStorageBatch = async (
     hash: HexString,
     keys: HexString[]
-  ): Promise<(Uint8Array | null)[]> => {
+  ): Promise<StorageNode[]> => {
     const block = assertBlock(hash);
 
     const keysIndexed = keys.map((key, idx) => ({ key, idx }));
@@ -229,10 +227,10 @@ export const createChain = async (
         getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
 
       if (node?.value !== undefined) {
-        return node.value;
+        return node;
       }
       pending.push({ key, idx, binKey });
-      return null;
+      return null!;
     });
 
     const loadedResults = await source.getStorageBatch(
@@ -246,7 +244,11 @@ export const createChain = async (
         binKey.length * 2,
         res
       );
-      result[idx] = res;
+      result[idx] = getNode(
+        initialBlock.storageRoot,
+        binKey,
+        binKey.length * 2
+      )!;
     });
 
     return result;
@@ -255,15 +257,15 @@ export const createChain = async (
   const getStorageDescendants = async (
     hash: HexString,
     prefix: HexString
-  ): Promise<Record<HexString, Uint8Array>> => {
+  ): Promise<Record<HexString, StorageNode>> => {
     const block = assertBlock(hash);
     const binPrefix = Binary.fromHex(prefix);
 
     const getNodeDescendants = (node: StorageNode | null) =>
       node
         ? Object.fromEntries(
-            getDescendantValues(node, binPrefix, binPrefix.length * 2).map(
-              ({ key, value }) => [Binary.toHex(key), value]
+            getDescendantNodes(node, binPrefix, binPrefix.length * 2).map(
+              ({ key, node }) => [Binary.toHex(key), node]
             )
           )
         : {};
