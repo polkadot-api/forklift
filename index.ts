@@ -11,4 +11,6 @@ const fork = forklift({
   },
 });
 
-const client = createClient(withLogsRecorder(console.log, fork.serve));
+const client = createClient(
+  withLogsRecorder((log) => console.log(log.slice(0, 500)), fork.serve)
+);

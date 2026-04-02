@@ -17,6 +17,7 @@ import {
   withLatestFrom,
 } from "rxjs";
 import { getParams, getUuid, respond, type RpcMethod } from "./rpc_utils";
+import { runRuntimeCall } from "../executor";
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -55,7 +56,7 @@ export const chainHead_v1_follow: RpcMethod = async (
   const subId = getUuid();
   const ctx = {
     pinnedBlocks: new Set<string>(),
-    storageOps: {},
+    operations: {},
   };
   con.context.chainHead_v1_subs[subId] = ctx;
   con.send(respond(req, subId));
@@ -241,12 +242,12 @@ export const chainHead_v1_storage: RpcMethod = (
 
   const opId = getUuid();
   const subscription = new Subscription();
-  sub.storageOps[opId] = {
-    hash,
-    items,
-    childTrie,
-    subscription,
+  sub.operations[opId] = subscription;
+  const cleanup = () => {
+    delete sub.operations[opId];
+    subscription.unsubscribe();
   };
+
   con.send(
     respond(req, {
       result: "started",
@@ -307,6 +308,7 @@ export const chainHead_v1_storage: RpcMethod = (
           })
         ),
       error: (e) => {
+        console.error(e);
         con.send(
           followEvent(followSubscription, {
             event: "operationError",
@@ -314,15 +316,98 @@ export const chainHead_v1_storage: RpcMethod = (
             error: e.message,
           })
         );
-        console.error(e);
+        cleanup();
       },
-      complete: () =>
+      complete: () => {
         con.send(
           followEvent(followSubscription, {
             event: "operationStorageDone",
             operationId: opId,
           })
+        );
+        cleanup();
+      },
+    })
+  );
+};
+
+export const chainHead_v1_call: RpcMethod = (
+  chain,
+  con,
+  req: JsonRpcRequest<{
+    followSubscription: string;
+    hash: HexString;
+    function: HexString;
+    callParameters: HexString;
+  }>
+) => {
+  const {
+    followSubscription,
+    hash,
+    function: fnName,
+    callParameters,
+  } = getParams(req, [
+    "followSubscription",
+    "hash",
+    "function",
+    "callParameters",
+  ]);
+
+  const sub = con.context.chainHead_v1_subs[followSubscription];
+  if (!sub) return con.send(respond(req, { result: "limitReached" }));
+
+  if (!sub.pinnedBlocks.has(hash)) return con.send(blockNotPinned(req));
+
+  const block = chain.getBlock(hash);
+  if (!block) return con.send(blockNotReadable(req));
+
+  const opId = getUuid();
+  const subscription = new Subscription();
+  sub.operations[opId] = subscription;
+  const cleanup = () => {
+    delete sub.operations[opId];
+    subscription.unsubscribe();
+  };
+
+  con.send(
+    respond(req, {
+      result: "started",
+      operationId: opId,
+      discardedItems: [],
+    })
+  );
+
+  subscription.add(
+    from(
+      runRuntimeCall({
+        chain,
+        hash,
+        call: fnName,
+        params: callParameters,
+      })
+    ).subscribe({
+      next: (output) =>
+        con.send(
+          followEvent(followSubscription, {
+            event: "operationCallDone",
+            operationId: opId,
+            output,
+          })
         ),
+      error: (e) => {
+        console.error(e);
+        con.send(
+          followEvent(followSubscription, {
+            event: "operationError",
+            operationId: opId,
+            error: e.message,
+          })
+        );
+        cleanup();
+      },
+      complete: () => {
+        cleanup();
+      },
     })
   );
 };

@@ -5,7 +5,6 @@ import type {
 } from "@polkadot-api/substrate-client";
 import { Subscription, type Observable } from "rxjs";
 import type { Chain } from "../chain";
-import type { HexString } from "polkadot-api";
 
 export interface Connection {
   disconnect$: Observable<void>;
@@ -15,23 +14,7 @@ export interface Connection {
       string,
       {
         pinnedBlocks: Set<string>;
-        storageOps: Record<
-          string,
-          {
-            hash: HexString;
-            items: Array<{
-              key: HexString;
-              type:
-                | "value"
-                | "hash"
-                | "closestDescendantMerkleValue"
-                | "descendantsValues"
-                | "descendantsHashes";
-            }>;
-            childTrie: HexString | null;
-            subscription: Subscription;
-          }
-        >;
+        operations: Record<string, Subscription>;
       }
     >;
   };

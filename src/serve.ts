@@ -2,6 +2,7 @@ import type { JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Subject } from "rxjs";
 import type { Chain } from "./chain";
 import {
+  chainHead_v1_call,
   chainHead_v1_follow,
   chainHead_v1_header,
   chainHead_v1_storage,
@@ -12,6 +13,7 @@ const methods: Record<string, RpcMethod> = {
   chainHead_v1_follow,
   chainHead_v1_header,
   chainHead_v1_storage,
+  chainHead_v1_call,
 };
 
 export const createServer = (chain: Promise<Chain>): JsonRpcProvider => {
