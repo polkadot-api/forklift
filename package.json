@@ -4,15 +4,18 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.3.11"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "@acala-network/chopsticks-executor": "^1.3.0",
+    "@polkadot-api/metadata-builders": "^0.13.11",
     "@polkadot-api/observable-client": "^0.18.2",
+    "@polkadot-api/substrate-bindings": "^0.19.0",
     "@polkadot-api/substrate-client": "^0.6.0",
+    "@polkadot-api/tx-utils": "^0.2.5",
     "@polkadot-api/ws-middleware": "^0.2.3",
     "@polkadot-api/ws-provider": "^0.8.1",
     "polkadot-api": "2.0.0-rc.5",

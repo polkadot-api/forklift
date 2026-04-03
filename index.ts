@@ -1,6 +1,4 @@
-import { createClient } from "polkadot-api";
 import { forklift } from "./src/forklift";
-import { withLogsRecorder } from "polkadot-api/logs-provider";
 
 const fork = forklift({
   source: {
@@ -11,6 +9,16 @@ const fork = forklift({
   },
 });
 
-const client = createClient(
-  withLogsRecorder((log) => console.log(log.slice(0, 500)), fork.serve)
-);
+// Test newBlock directly
+console.log("Starting newBlock test...");
+fork.newBlock().then((hash) => {
+  console.log("\n\n========== NEW BLOCK CREATED ==========");
+  console.log("Hash:", hash);
+  console.log("========================================\n\n");
+  process.exit(0);
+}).catch((err) => {
+  console.error("\n\n========== ERROR ==========");
+  console.error(err);
+  console.error("===========================\n\n");
+  process.exit(1);
+});

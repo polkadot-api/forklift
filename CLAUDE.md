@@ -59,7 +59,8 @@ interface StorageNode {
 - `deleteValue(root, key, nibbles)` - soft delete (sets value to null, doesn't remove node)
 - `getNode(root, key, nibbles)` - traverse to node at key
 - `getDiff(base, other)` - compute storage diff between two tries
-- `getDescendantValues(node, prefix, nibbles)` - get all values under a prefix
+- `getDescendantNodes(node, prefix, nibbles)` - get all nodes with values under a prefix
+- `forEachDescendant(root, cb)` - iterate all descendant nodes (used for marking exhaustive)
 
 **Design decisions:**
 
@@ -81,35 +82,45 @@ interface Block {
   height: number;
   code: Uint8Array;
   storageRoot: StorageNode; // Immutable trie root for this block's state
+  header: BlockHeader; // Decoded block header
+  runtime: RuntimeVersion; // Runtime version info
+  hasNewRuntime?: boolean; // Flag indicating runtime upgrade
+  children: HexString[]; // Child block hashes (for fork management)
 }
 
 interface Chain {
   blocks$: Observable<Record<HexString, Block>>;
+  newBlocks$: Observable<HexString>; // Emits when new blocks are added
   best$: Observable<HexString>;
   finalized$: Observable<HexString>;
 
+  getBlock(hash): Block | undefined;
   newBlock(opts?): void;
   changeBest(hash): void;
   changeFinalized(hash): void;
   setStorage(hash, changes): void;
 
   // Storage queries (lazy-load from source)
-  getStorage(hash, key): Promise<Uint8Array | null>;
-  getStorageBatch(hash, keys): Promise<(Uint8Array | null)[]>;
-  getStorageDescendants(hash, prefix): Promise<Record<HexString, Uint8Array>>;
+  // Return StorageNode to expose hash for merkle proofs
+  getStorage(hash, key): Promise<StorageNode>;
+  getStorageBatch(hash, keys): Promise<StorageNode[]>;
+  getStorageDescendants(hash, prefix): Promise<Record<HexString, StorageNode>>;
 }
 ```
 
 **Design decisions:**
 
-- `createChain(source)` is async - fetches runtime code from source at init
+- `createChain(source)` is async - fetches runtime code and runtime version from source at init
 - Each block has its own `storageRoot` trie - forks get independent state
 - Storage is **lazy-loaded**: queries check block's trie first, then fall back to source
 - The `initialBlock.storageRoot` is mutated as data loads from source
 - Newer blocks check both their own trie AND initialBlock's trie (for newly loaded data)
 - `setStorage` directly modifies a block's storageRoot (for staging changes)
-- `changeFinalized` validates the block is a descendant of current finalized
+- `changeFinalized` validates the block is a descendant of current finalized, updates best if needed
 - `changeBest` validates the block is a descendant of finalized
+- Storage methods return `StorageNode` (not raw bytes) to expose hash for merkle proofs
+- `newBlocks$` emits block hashes as they're added (used by RPC subscriptions)
+- `getBlock` provides synchronous access to loaded blocks
 - No block pruning - forklift is for short-lived test scenarios, not long-running nodes
 
 ### Forklift (`src/forklift.ts`)
@@ -123,12 +134,12 @@ interface Forklift {
   changeBest(hash): Promise<void>;
   changeFinalized(hash): Promise<void>;
   setStorage(hash, changes): Promise<void>;
-  getStorageDiff(hash): Promise<Record<string, Uint8Array>>;
-  setBuildBlockMode(mode): void;
+  getStorageDiff(hash): Promise<Record<string, Uint8Array | null>>;
+  setBuildBlockMode(mode): void; // Not yet implemented
 }
 ```
 
-**Build block modes:**
+**Build block modes (enum defined, not yet functional):**
 
 - `Manual` - blocks created only when `newBlock()` called
 - `Instant` - new block after each transaction
@@ -138,6 +149,7 @@ interface Forklift {
 
 - `type` - "best", "finalized", or "fork"
 - `parent` - which block to build on (enables forking)
+- `unsafeBlockHeight` - override block height
 - `transactions` - extrinsics to include
 - `dmp`, `hrmp`, `ump` - parachain messages
 - `storage` - storage overrides
@@ -156,14 +168,14 @@ const result = await runRuntimeCall({
   mockSignatureHost: false,
 });
 
-// Get runtime version without full execution
-const version = await getRuntimeVersion(chain, blockHash);
+// Get runtime version from code bytes
+const version = await getRuntimeVersion(codeBytes);
 ```
 
 **Key functions:**
 
 - `runRuntimeCall({ chain, hash, call, params, mockSignatureHost? })` - execute a runtime API
-- `getRuntimeVersion(chain, hash)` - get runtime version info
+- `getRuntimeVersion(code: Uint8Array)` - get runtime version info from WASM code
 
 **JsCallback implementation:**
 
@@ -172,6 +184,48 @@ const version = await getRuntimeVersion(chain, blockHash);
 - `offchainTimestamp` - returns `Date.now()`
 - `offchainRandomSeed` - returns crypto random bytes
 - `offchainGetStorage`, `offchainSubmitTransaction` - not implemented (return undefined/false)
+
+### JSON-RPC Server (`src/serve.ts`)
+
+Creates a `JsonRpcProvider` that routes requests to RPC method handlers.
+
+```typescript
+const createServer = (chain: Promise<Chain>): JsonRpcProvider
+```
+
+**Design decisions:**
+
+- Each connection maintains its own context (subscriptions, pinned blocks)
+- Implements `rpc_methods` for method discovery
+- Routes to handlers in `src/rpc/` directory
+
+### chainHead_v1 RPC Methods (`src/rpc/chainHead_v1.ts`)
+
+Implements the new JSON-RPC spec chainHead methods:
+
+**`chainHead_v1_follow`**
+- Creates subscription with pinned blocks tracking
+- Sends `initialized` event with finalized blocks (up to 5 ancestors)
+- Emits `newBlock`, `bestBlockChanged`, `finalized` events
+- Tracks operations per subscription
+
+**`chainHead_v1_header`**
+- Returns SCALE-encoded block header
+- Validates block is pinned in subscription
+
+**`chainHead_v1_storage`**
+- Supports `value`, `hash`, `closestDescendantMerkleValue` query types
+- Returns async operation with `operationStorageItems` events
+- TODO: child trie support, pagination, descendant queries
+
+**`chainHead_v1_call`**
+- Executes runtime API calls via executor
+- Returns `operationCallDone` with output or `operationError` on failure
+
+**RPC Utilities (`src/rpc/rpc_utils.ts`)**
+- `Connection` interface with subscription context
+- `RpcMethod` type definition
+- Helpers: `getParams()`, `getUuid()`, `respond()`
 
 ## Dependencies
 
@@ -194,7 +248,11 @@ const version = await getRuntimeVersion(chain, blockHash);
 - [ ] `Chain.newBlock` (requires runtime execution)
 - [x] `Forklift` basic wiring (creates source + chain)
 - [x] `Executor` - runtime API calls via chopsticks-executor
-- [ ] JSON-RPC server (`serve`)
+- [x] JSON-RPC server (`serve`)
+- [x] `chainHead_v1_follow`, `chainHead_v1_header`, `chainHead_v1_storage`, `chainHead_v1_call`
+- [ ] `chainHead_v1_storage` child trie support
+- [ ] `chainHead_v1_storage` pagination
+- [ ] `chainHead_v1_storage` descendant queries (`descendantsValues`, `descendantsHashes`)
 
 ## Usage
 

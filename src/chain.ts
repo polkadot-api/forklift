@@ -1,6 +1,12 @@
-import { Binary, type BlockHeader, type HexString } from "polkadot-api";
+import { Binary, type HexString } from "polkadot-api";
 import { BehaviorSubject, Subject, type Observable } from "rxjs";
-import { getRuntimeVersion, type RuntimeVersion } from "./executor";
+import {
+  createBlock,
+  type Block,
+  type CreateBlockParams,
+} from "./block-builder/create-block";
+import { setBlockMeta } from "./codecs";
+import { getRuntimeVersion } from "./executor";
 import type { Source } from "./source";
 import {
   createRoot,
@@ -11,28 +17,10 @@ import {
   insertValue,
   type StorageNode,
 } from "./storage";
+import { file } from "bun";
 
-export interface Block {
-  hash: HexString;
-  parent: HexString;
-  height: number;
-  code: Uint8Array;
-  storageRoot: StorageNode;
-  header: BlockHeader;
-  runtime: RuntimeVersion;
-  hasNewRuntime?: boolean;
-  children: HexString[];
-}
-
-export interface NewBlockOptions {
+export interface NewBlockOptions extends CreateBlockParams {
   type: "best" | "finalized" | "fork";
-  parent: HexString;
-  unsafeBlockHeight: number;
-  transactions: Uint8Array[];
-  dmp: Uint8Array[];
-  hrmp: Record<number, Uint8Array[]>;
-  ump: Record<number, Uint8Array[]>;
-  storage: Record<HexString, Uint8Array | null>;
 }
 
 export interface Chain {
@@ -43,7 +31,7 @@ export interface Chain {
 
   getBlock: (hash: HexString) => Block | undefined;
 
-  newBlock: (opts?: Partial<NewBlockOptions>) => void;
+  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<HexString>;
   changeBest: (hash: HexString) => void;
   changeFinalized: (hash: HexString) => void;
   setStorage: (
@@ -73,6 +61,8 @@ const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 //   };
 // };
 
+const cacheFile = "code.bin";
+
 export const createChain = async (
   sourceP: Source | Promise<Source>
 ): Promise<Chain> => {
@@ -80,10 +70,14 @@ export const createChain = async (
 
   // Fetch the runtime code from the source
   console.log("Loading code");
-  const code = await source.getStorage(CODE_KEY);
+  const code = (await file(cacheFile).exists())
+    ? await file(cacheFile).bytes()
+    : await source.getStorage(CODE_KEY);
+
   if (!code) {
     throw new Error("No runtime code found at source block");
   }
+  file(cacheFile).write(code);
   console.log("Code loaded, getting runtime");
   const initialRuntime = await getRuntimeVersion(code);
   console.log("Runtime loaded");
@@ -102,6 +96,7 @@ export const createChain = async (
       "0x0000000000000000000000000000000000000000000000000000000000000000",
     height: source.header.number,
     header: source.header,
+    body: source.body,
     code,
     storageRoot,
     runtime: initialRuntime,
@@ -321,12 +316,55 @@ export const createChain = async (
     };
   };
 
-  const newBlock = (_opts?: Partial<NewBlockOptions>): void => {
-    // TODO: implement block building
-    throw new Error("newBlock not yet implemented");
+  const newBlock = async (
+    opts?: Partial<NewBlockOptions>
+  ): Promise<HexString> => {
+    await blockMetaSet;
+
+    const {
+      type = "finalized",
+      dmp = [],
+      hrmp = [],
+      parent = finalized$.getValue(),
+      storage = {},
+      transactions = [],
+      ump = {},
+      unsafeBlockHeight,
+    } = opts ?? {};
+
+    const block = await createBlock(chain, {
+      dmp,
+      hrmp,
+      parent,
+      storage,
+      transactions,
+      ump,
+      unsafeBlockHeight,
+    });
+
+    // Add block to blocks$
+    blocks$.next({
+      ...blocks$.getValue(),
+      [block.hash]: block,
+    });
+
+    setBlockMeta(chain, block);
+
+    // Emit newBlocks$ event
+    newBlocks$.next(block.hash);
+
+    // Update best/finalized based on type
+    if (type === "best") {
+      best$.next(block.hash);
+    } else if (type === "finalized") {
+      best$.next(block.hash);
+      finalized$.next(block.hash);
+    }
+
+    return block.hash;
   };
 
-  return {
+  const chain: Chain = {
     blocks$: blocks$.asObservable(),
     newBlocks$: newBlocks$.asObservable(),
     best$: best$.asObservable(),
@@ -340,4 +378,8 @@ export const createChain = async (
     getStorageBatch,
     getStorageDescendants,
   };
+
+  const blockMetaSet = setBlockMeta(chain, initialBlock);
+
+  return chain;
 };

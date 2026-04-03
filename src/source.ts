@@ -11,6 +11,8 @@ export interface Source {
   /** The block header */
   header: BlockHeader;
 
+  body: Uint8Array[];
+
   /** Get a single storage value */
   getStorage(key: HexString): Promise<Uint8Array | null>;
 
@@ -26,6 +28,13 @@ export interface Source {
   disconnect(): void;
 }
 
+const queries = new Array<string>();
+const descendants = new Array<string>();
+// setInterval(() => {
+//   queries.sort();
+//   console.log(JSON.stringify({ queries, descendants }));
+// }, 5000);
+
 export const createRemoteSource = async (
   url: string | string[],
   options: {
@@ -36,9 +45,8 @@ export const createRemoteSource = async (
     getWsProvider(url, {
       middleware,
       logger: (evt) => {
-        if (evt.type !== SocketEvents.IN && evt.type !== SocketEvents.OUT) {
+        if (evt.type !== SocketEvents.IN && evt.type !== SocketEvents.OUT)
           console.log(evt);
-        }
       },
     })
   );
@@ -46,6 +54,13 @@ export const createRemoteSource = async (
 
   // Resolve the block hash
   let blockHash: HexString;
+  // working
+  // options.atBlock =
+  //   "0x7160c5851e4fc899bfce84331f4dda4ea092841c0f21f4853eb5ecbf6f9f659a";
+  // not working
+  options.atBlock =
+    "0x0f2e70e972b62107dc0315df2c161dd5a97f7d372fed2cd2cacff4178344ea72";
+
   if (options.atBlock === undefined) {
     const finalizedHeight = await archive.finalizedHeight();
     const hashes = await archive.hashByHeight(finalizedHeight);
@@ -71,16 +86,21 @@ export const createRemoteSource = async (
   const header = blockHeader.dec(Binary.fromHex(headerHex));
   console.log(`Initial block loaded`);
 
+  const body = await archive.body(blockHash);
+
   return {
     blockHash,
     header,
+    body: body.map((v) => Binary.fromHex(v)),
 
     async getStorage(key: HexString): Promise<Uint8Array | null> {
+      queries.push(key);
       const value = await archive.storage(blockHash, "value", key, null);
       return value ? Binary.fromHex(value) : null;
     },
 
     async getStorageBatch(keys: HexString[]): Promise<(Uint8Array | null)[]> {
+      console.log("get batch");
       return new Promise((resolve, reject) => {
         const results = new Map<string, Uint8Array | null>();
         const inputs = keys.map((key) => ({ key, type: "value" as const }));
@@ -107,6 +127,11 @@ export const createRemoteSource = async (
     async getStorageDescendants(
       prefix: HexString
     ): Promise<Record<HexString, Uint8Array>> {
+      if (prefix.length < 10) {
+        throw new Error("Descendants too broad");
+      }
+      descendants.push(prefix);
+
       const entries = await archive.storage(
         blockHash,
         "descendantsValues",

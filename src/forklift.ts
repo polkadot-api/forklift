@@ -14,7 +14,7 @@ export enum BuildBlockMode {
 export interface Forklift {
   serve: JsonRpcProvider;
 
-  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<void>;
+  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<HexString>;
   changeBest: (hash: HexString) => Promise<void>;
   changeFinalized: (hash: HexString) => Promise<void>;
   setStorage: (
@@ -76,7 +76,7 @@ export function forklift(params: ForkliftParams): Forklift {
             diff.insert,
             new Uint8Array(),
             0
-          ).map(({ key, value }) => [Binary.toHex(key), value]);
+          ).map(({ key, node }) => [Binary.toHex(key), node.value]);
           const deletes = diff.deleteValues.map(({ key }) => [
             Binary.toHex(key),
             null,

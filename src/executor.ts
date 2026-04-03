@@ -11,6 +11,7 @@ export interface ExecutorParams {
   hash: HexString;
   call: string;
   params: HexString;
+  storageOverrides?: Record<HexString, HexString | null>;
   mockSignatureHost?: boolean;
 }
 
@@ -25,13 +26,15 @@ export interface RuntimeVersion {
   stateVersion: number;
 }
 
+export interface RuntimeCallResult {
+  result: HexString;
+  storageDiff: Array<[HexString, HexString | null]>;
+  offchainStorageDiff: Array<[HexString, HexString | null]>;
+  runtimeLogs: string[];
+}
+
 interface TaskResponse {
-  Call?: {
-    result: HexString;
-    storageDiff: Array<[HexString, HexString | null]>;
-    offchainStorageDiff: Array<[HexString, HexString | null]>;
-    runtimeLogs: string[];
-  };
+  Call?: RuntimeCallResult;
   Error?: string;
 }
 
@@ -41,8 +44,9 @@ export const runRuntimeCall = async ({
   hash,
   call,
   params,
+  storageOverrides = {},
   mockSignatureHost = false,
-}: ExecutorParams): Promise<HexString> => {
+}: ExecutorParams): Promise<RuntimeCallResult> => {
   // Get the runtime code for the target block
   const code = await chain.getBlock(hash)?.code;
   if (!code) {
@@ -51,7 +55,7 @@ export const runRuntimeCall = async ({
   const codeHex = Binary.toHex(code);
 
   // Create the callback object for storage access
-  const jsCallback = createJsCallback(chain, hash);
+  const jsCallback = createJsCallback(chain, hash, storageOverrides);
 
   // Build the task
   const task = {
@@ -76,7 +80,7 @@ export const runRuntimeCall = async ({
     throw new Error("Unexpected response format from runtime");
   }
 
-  return response.Call.result;
+  return response.Call;
 };
 
 export const getRuntimeVersion = async (
@@ -88,9 +92,18 @@ export const getRuntimeVersion = async (
   return version as RuntimeVersion;
 };
 
-const createJsCallback = (chain: Chain, hash: HexString): JsCallback => {
+const MIN_PREFIX_LEN = 32 * 2 + 2; // module + method + 0x
+const createJsCallback = (
+  chain: Chain,
+  hash: HexString,
+  overlay: Record<HexString, HexString | null>
+): JsCallback => {
   return {
     async getStorage(key: HexString): Promise<string | undefined> {
+      // Check overlay first
+      if (key in overlay) {
+        return overlay[key] ?? undefined;
+      }
       const node = await chain.getStorage(hash, key);
       return node.value ? Binary.toHex(node.value) : undefined;
     },
@@ -99,15 +112,29 @@ const createJsCallback = (chain: Chain, hash: HexString): JsCallback => {
       prefix: HexString,
       key: HexString
     ): Promise<string | undefined> {
+      prefix =
+        prefix.length < MIN_PREFIX_LEN ? key.slice(0, MIN_PREFIX_LEN) : prefix;
+
       // Get all descendants under the prefix and find the next key after `key`
       const descendants = await chain.getStorageDescendants(hash, prefix);
-      const keys = Object.keys(descendants).sort();
+
+      // Merge with overlay
+      const allKeys = new Set([
+        ...Object.keys(descendants),
+        ...Object.keys(overlay).filter(
+          (k) => k.startsWith(prefix) && overlay[k] !== null
+        ),
+      ]);
+      // Remove keys that are deleted in overlay
+      for (const k of Object.keys(overlay)) {
+        if (overlay[k] === null) allKeys.delete(k);
+      }
+      const keys = [...allKeys].sort();
       const idx = keys.findIndex((k) => k > key);
       return idx >= 0 ? keys[idx] : undefined;
     },
 
     async offchainGetStorage(_key: HexString): Promise<string | undefined> {
-      // Offchain storage not implemented
       return undefined;
     },
 
@@ -116,14 +143,12 @@ const createJsCallback = (chain: Chain, hash: HexString): JsCallback => {
     },
 
     async offchainRandomSeed(): Promise<`0x${string}`> {
-      // Return a pseudo-random seed
       const bytes = new Uint8Array(32);
       crypto.getRandomValues(bytes);
       return Binary.toHex(bytes) as `0x${string}`;
     },
 
     async offchainSubmitTransaction(_tx: HexString): Promise<boolean> {
-      // Transaction submission not implemented
       return false;
     },
   };
