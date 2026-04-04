@@ -28,8 +28,8 @@ export interface Source {
   disconnect(): void;
 }
 
-const queries = new Array<string>();
-const descendants = new Array<string>();
+// const queries = new Array<string>();
+// const descendants = new Array<string>();
 // setInterval(() => {
 //   queries.sort();
 //   console.log(JSON.stringify({ queries, descendants }));
@@ -88,13 +88,13 @@ export const createRemoteSource = async (
     body: body.map((v) => Binary.fromHex(v)),
 
     async getStorage(key: HexString): Promise<Uint8Array | null> {
-      queries.push(key);
+      // queries.push(key);
+      // console.log("--" + key);
       const value = await archive.storage(blockHash, "value", key, null);
       return value ? Binary.fromHex(value) : null;
     },
 
     async getStorageBatch(keys: HexString[]): Promise<(Uint8Array | null)[]> {
-      console.log("get batch");
       return new Promise((resolve, reject) => {
         const results = new Map<string, Uint8Array | null>();
         const inputs = keys.map((key) => ({ key, type: "value" as const }));
@@ -124,7 +124,7 @@ export const createRemoteSource = async (
       if (prefix.length < 10) {
         throw new Error("Descendants too broad");
       }
-      descendants.push(prefix);
+      // descendants.push(prefix);
 
       const entries = await archive.storage(
         blockHash,

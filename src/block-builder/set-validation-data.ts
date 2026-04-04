@@ -5,6 +5,7 @@ import {
   Twox128,
   blockHeader,
   compact,
+  u64,
   u32,
 } from "@polkadot-api/substrate-bindings";
 import {
@@ -24,8 +25,10 @@ import {
   unsignedExtrinsic,
 } from "../codecs";
 import type { Block } from "./create-block";
+import { getCurrentSlot, getSlotDuration } from "./slot-utils";
 
 const textEncoder = new TextEncoder();
+const RELAY_CHAIN_SLOT_DURATION_MILLIS = 6_000n;
 
 // Compute a Substrate storage key: twox128(pallet) ++ twox128(storage)
 const storagePrefix = (pallet: string, storage: string): HexString =>
@@ -36,6 +39,8 @@ const storagePrefix = (pallet: string, storage: string): HexString =>
     ])
   ) as HexString;
 
+const BABE_CURRENT_SLOT_KEY = storagePrefix("Babe", "CurrentSlot");
+
 // Well-known relay chain storage keys that must be preserved in the proof.
 // These are required for the parachain runtime to verify relay chain state.
 // Keys are computed from pallet/storage names per Substrate storage conventions.
@@ -44,7 +49,7 @@ const PRESERVE_PROOFS = [
   storagePrefix("Babe", "CurrentBlockRandomness"),
   storagePrefix("Babe", "Randomness"),
   storagePrefix("Babe", "NextRandomness"),
-  storagePrefix("Babe", "CurrentSlot"),
+  BABE_CURRENT_SLOT_KEY,
   storagePrefix("Configuration", "ActiveConfig"),
   storagePrefix("Babe", "Authorities"),
 ];
@@ -79,7 +84,7 @@ type RelayParentDescendant = {
 };
 
 export const setValidationDataInherent = async (
-  _chain: Chain,
+  chain: Chain,
   parentBlock: Block
 ) => {
   const txCodec = getTxCodec(
@@ -137,13 +142,36 @@ export const setValidationDataInherent = async (
   // Convert to a Map for easy lookup
   const decodedProof = new Map(decodedProofArray);
 
+  const slotDuration = await getSlotDuration(chain, parentBlock);
+  const relaySlotIncreaseRaw = slotDuration / RELAY_CHAIN_SLOT_DURATION_MILLIS;
+  const relaySlotIncrease =
+    relaySlotIncreaseRaw > 0n ? relaySlotIncreaseRaw : 1n;
+
+  const relayCurrentSlot = await (async () => {
+    const currentSlotHex = decodedProof.get(BABE_CURRENT_SLOT_KEY);
+    if (typeof currentSlotHex === "string") {
+      return u64.dec(Binary.fromHex(currentSlotHex));
+    }
+
+    const currentSlot = await getCurrentSlot(chain, parentBlock);
+    return currentSlot * relaySlotIncrease;
+  })();
+
+  const nextRelayChainSlot = Binary.toHex(
+    u64.enc(relayCurrentSlot + relaySlotIncrease)
+  ) as HexString;
+
   // Build new entries: preserve all PRESERVE_PROOFS + add paraHead
   const newEntries: [HexString, HexString | null][] = [];
 
   // Preserve all well-known relay chain storage entries (including AUTHORITIES)
   for (const key of PRESERVE_PROOFS) {
     if (decodedProof.has(key)) {
-      newEntries.push([key as HexString, decodedProof.get(key) ?? null]);
+      const value =
+        key === BABE_CURRENT_SLOT_KEY && nextRelayChainSlot
+          ? nextRelayChainSlot
+          : decodedProof.get(key) ?? null;
+      newEntries.push([key as HexString, value]);
     }
   }
 
@@ -159,8 +187,7 @@ export const setValidationDataInherent = async (
     newEntries
   );
 
-  // Keep relay_parent_number the same - we're just injecting the parent header
-  // into the proof to clear the unincluded segment, not advancing the relay chain.
+  // Keep relay_parent_descendants aligned with the new relay parent number.
   const originalDescendants: Array<RelayParentDescendant> =
     prevValidationData.relay_parent_descendants ?? [];
 
@@ -169,6 +196,9 @@ export const setValidationDataInherent = async (
   // 2. Each subsequent descendant's parentHash must be the hash of the previous header
   const updatedDescendants: Array<RelayParentDescendant> = [];
   let lastHeaderHash: HexString | undefined;
+  let nextDescNumber =
+    Number(prevValidationData.validation_data.relay_parent_number) +
+    Number(relaySlotIncrease);
 
   for (let i = 0; i < originalDescendants.length; i++) {
     const desc = originalDescendants[i]!;
@@ -180,9 +210,12 @@ export const setValidationDataInherent = async (
       state_root: i === 0 ? newStateRoot : desc.state_root,
       // Update parentHash to point to the modified previous header
       parent_hash: lastHeaderHash ?? desc.parent_hash,
+      // Align descendant numbers with the new relay_parent_number
+      number: nextDescNumber,
     };
 
     updatedDescendants.push(updatedDesc);
+    nextDescNumber += 1;
 
     // Compute the hash of this header for the next iteration
     // Convert to the format expected by blockHeader.enc (camelCase)
@@ -225,7 +258,9 @@ export const setValidationDataInherent = async (
     ...prevValidationData,
     validation_data: {
       ...prevValidationData.validation_data,
-      // Keep relay_parent_number the same
+      relay_parent_number:
+        Number(prevValidationData.validation_data.relay_parent_number) +
+        Number(relaySlotIncrease),
       relay_parent_storage_root: newStateRoot,
     },
     relay_chain_state: newNodes.map((node) => Binary.fromHex(node)),

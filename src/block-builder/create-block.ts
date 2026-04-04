@@ -1,5 +1,5 @@
-import { Blake2256, blockHeader } from "@polkadot-api/substrate-bindings";
-import { Binary, type BlockHeader, type HexString } from "polkadot-api";
+import { Blake2256, blockHeader, u64 } from "@polkadot-api/substrate-bindings";
+import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
 import {
   getRuntimeVersion,
@@ -14,6 +14,7 @@ import {
 } from "../storage";
 import { timestampInherent } from "./timestamp";
 import { setValidationDataInherent } from "./set-validation-data";
+import { getCurrentSlot } from "./slot-utils";
 
 export interface CreateBlockParams {
   parent: HexString;
@@ -58,7 +59,7 @@ export const createBlock = async (
     ...params.transactions,
   ].filter((v) => v !== null);
 
-  const result = await buildBlock(chain, height, parentHash, extrinsics);
+  const result = await buildBlock(chain, height, parent, extrinsics);
 
   // Decode the final header from runtime
   const encodedFinalHeader = Binary.fromHex(result.header);
@@ -124,9 +125,12 @@ export const createBlock = async (
 const buildBlock = async (
   chain: Chain,
   height: number,
-  parentHash: HexString,
+  parent: Block,
   extrinsics: Uint8Array[]
 ) => {
+  const parentHash = parent.hash;
+  const digests = await buildNextDigests(chain, parent);
+
   const provisionalHeader: BlockHeader = {
     parentHash,
     number: height,
@@ -134,9 +138,10 @@ const buildBlock = async (
       "0x0000000000000000000000000000000000000000000000000000000000000000",
     extrinsicRoot:
       "0x0000000000000000000000000000000000000000000000000000000000000000",
-    digests: [],
+    digests,
   };
 
+  console.log("initialise block");
   // Call Core_initialize_block
   const initResponse = await runRuntimeCall({
     chain,
@@ -152,6 +157,7 @@ const buildBlock = async (
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
+      console.log("apply extrinsic");
       const applyResponse = await runRuntimeCall({
         chain,
         hash: parentHash,
@@ -172,6 +178,7 @@ const buildBlock = async (
     }
   }
 
+  console.log("finalize block");
   const finalizeResponse = await runRuntimeCall({
     chain,
     hash: parentHash,
@@ -191,4 +198,24 @@ const buildBlock = async (
     body,
     storageDiff: storageOverrides,
   };
+};
+
+const buildNextDigests = async (chain: Chain, parent: Block) => {
+  const currentSlot = await getCurrentSlot(chain, parent);
+  const nextSlot = currentSlot + 1n;
+  const nextSlotPayload = Binary.toHex(u64.enc(nextSlot));
+
+  if (parent.header.digests.length === 0) {
+    return [Enum("preRuntime", { engine: "aura", payload: nextSlotPayload })];
+  }
+
+  return parent.header.digests.map((digest) => {
+    if (digest.type !== "preRuntime") return digest;
+    if (digest.value.engine !== "aura") return digest;
+
+    return Enum("preRuntime", {
+      engine: "aura",
+      payload: nextSlotPayload,
+    });
+  });
 };

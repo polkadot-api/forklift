@@ -64,7 +64,7 @@ export const getConstant = (
 
     return codec.dec(entry.value);
   } catch (e) {
-    console.error(`getConstant failed for ${palletName}.${entryName}:`, e);
+    // console.error(`getConstant failed for ${palletName}.${entryName}:`, e);
     return null;
   }
 };
