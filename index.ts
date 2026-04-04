@@ -9,16 +9,18 @@ const fork = forklift({
   },
 });
 
-// Test newBlock directly
 console.log("Starting newBlock test...");
-fork.newBlock().then((hash) => {
-  console.log("\n\n========== NEW BLOCK CREATED ==========");
-  console.log("Hash:", hash);
-  console.log("========================================\n\n");
-  process.exit(0);
-}).catch((err) => {
-  console.error("\n\n========== ERROR ==========");
-  console.error(err);
-  console.error("===========================\n\n");
-  process.exit(1);
-});
+fork
+  .newBlock()
+  .then((hash) => {
+    console.log("\n\n========== NEW BLOCK CREATED ==========");
+    console.log("Hash:", hash);
+    console.log("========================================\n\n");
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error("\n\n========== ERROR ==========");
+    console.error(err);
+    console.error("===========================\n\n");
+    process.exit(1);
+  });

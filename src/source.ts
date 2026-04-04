@@ -54,12 +54,6 @@ export const createRemoteSource = async (
 
   // Resolve the block hash
   let blockHash: HexString;
-  // working
-  // options.atBlock =
-  //   "0x7160c5851e4fc899bfce84331f4dda4ea092841c0f21f4853eb5ecbf6f9f659a";
-  // not working
-  options.atBlock =
-    "0x0f2e70e972b62107dc0315df2c161dd5a97f7d372fed2cd2cacff4178344ea72";
 
   if (options.atBlock === undefined) {
     const finalizedHeight = await archive.finalizedHeight();

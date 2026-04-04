@@ -1,10 +1,5 @@
 import { Blake2256, blockHeader } from "@polkadot-api/substrate-bindings";
-import {
-  Binary,
-  type BlockHeader,
-  type HexString,
-  getOfflineApi,
-} from "polkadot-api";
+import { Binary, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
 import {
   getRuntimeVersion,
@@ -172,6 +167,8 @@ const buildBlock = async (
       call: "BlockBuilder_apply_extrinsic",
       params: extrinsic,
       storageOverrides,
+      // Enable mock signature verification to bypass relay chain header seal verification
+      mockSignatureHost: true,
     });
 
     storageOverrides = {

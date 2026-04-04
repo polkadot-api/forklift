@@ -227,6 +227,25 @@ Implements the new JSON-RPC spec chainHead methods:
 - `RpcMethod` type definition
 - Helpers: `getParams()`, `getUuid()`, `respond()`
 
+### Block Builder (`src/block-builder/`)
+
+Creates new parachain blocks by executing runtime APIs.
+
+**`create-block.ts`**
+- Orchestrates block creation: `Core_initialize_block` → `BlockBuilder_apply_extrinsic` (for each inherent/tx) → `BlockBuilder_finalize_block`
+- Uses `mockSignatureHost: true` to bypass BABE signature verification on relay chain headers
+
+**`set-validation-data.ts`**
+- Generates the `ParachainSystem.set_validation_data` inherent required for every parachain block
+- Extracts previous validation data from parent block's body
+- Injects parent header into relay chain proof as `Paras::Heads(paraId)` to signal block inclusion
+- Uses chopsticks-executor's `decode_proof`/`create_proof` for Merkle trie manipulation
+- Preserves `PRESERVE_PROOFS` (EPOCH_INDEX, AUTHORITIES, etc.) from existing proof
+- Updates `relay_parent_descendants` headers to maintain chain integrity after state root change
+
+**`timestamp.ts`**
+- Generates the `Timestamp.set` inherent with incremented timestamp
+
 ## Dependencies
 
 - `@polkadot-api/substrate-client` - Low-level substrate RPC client
@@ -245,7 +264,7 @@ Implements the new JSON-RPC spec chainHead methods:
 - [x] `Chain` data structures and observables
 - [x] `Chain.changeBest`, `changeFinalized`, `setStorage`
 - [x] `Chain.getStorage`, `getStorageBatch`, `getStorageDescendants`
-- [ ] `Chain.newBlock` (requires runtime execution)
+- [x] `Chain.newBlock` - block creation with inherents
 - [x] `Forklift` basic wiring (creates source + chain)
 - [x] `Executor` - runtime API calls via chopsticks-executor
 - [x] JSON-RPC server (`serve`)

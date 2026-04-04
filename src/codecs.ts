@@ -9,12 +9,12 @@ import {
   u32,
   unifyMetadata,
 } from "@polkadot-api/substrate-bindings";
+import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx-utils";
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import { type Block } from "./block-builder/create-block";
 import type { Chain } from "./chain";
 import { runRuntimeCall } from "./executor";
-import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx-utils";
 
 type DynamicBuilder = ReturnType<typeof getDynamicBuilder>;
 const blockMeta = new WeakMap<
@@ -63,7 +63,8 @@ export const getConstant = (
     const entry = pallet.constants.find((ct) => ct.name === entryName)!;
 
     return codec.dec(entry.value);
-  } catch {
+  } catch (e) {
+    console.error(`getConstant failed for ${palletName}.${entryName}:`, e);
     return null;
   }
 };
