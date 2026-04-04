@@ -22,8 +22,11 @@ export interface Forklift {
     changes: Record<string, Uint8Array>
   ) => Promise<void>;
   getStorageDiff: (
-    hash: HexString
-  ) => Promise<Record<string, Uint8Array | null>>;
+    hash: HexString,
+    baseHash?: HexString
+  ) => Promise<
+    Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
+  >;
   setBuildBlockMode: (mode: BuildBlockMode) => void;
 }
 
@@ -60,29 +63,7 @@ export function forklift(params: ForkliftParams): Forklift {
     changeFinalized: (hash) => chain.then((c) => c.changeFinalized(hash)),
     setStorage: (hash, changes) =>
       chain.then((c) => c.setStorage(hash, changes)),
-    getStorageDiff: (hash) =>
-      chain.then(
-        (c): Promise<Record<string, Uint8Array<ArrayBufferLike> | null>> => {
-          const target = c.getBlock(hash);
-          if (!target) {
-            throw new Error(`Block not found`);
-          }
-          const parent = c.getBlock(target.parent);
-          if (!parent) {
-            throw new Error(`Parent block not loaded`);
-          }
-          const diff = getDiff(parent.storageRoot, target.storageRoot);
-          const inserts = getDescendantNodes(
-            diff.insert,
-            new Uint8Array(),
-            0
-          ).map(({ key, node }) => [Binary.toHex(key), node.value]);
-          const deletes = diff.deleteValues.map(({ key }) => [
-            Binary.toHex(key),
-            null,
-          ]);
-          return Object.fromEntries([...inserts, ...deletes]);
-        }
-      ),
+    getStorageDiff: (hash, baseHash) =>
+      chain.then((c) => c.getStorageDiff(hash, baseHash)),
   } as Forklift;
 }

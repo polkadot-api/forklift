@@ -1,4 +1,4 @@
-import { Blake2128 } from "@polkadot-api/substrate-bindings";
+import { Binary, Blake2128 } from "@polkadot-api/substrate-bindings";
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
@@ -60,6 +60,7 @@ export const insertValue = (
   if (nibbles === offset)
     return {
       ...root,
+      hash: getHash(root.children, value),
       value,
     };
 
@@ -119,12 +120,14 @@ export const deleteValue = (
   offset = 0
 ): StorageNode => {
   // if (offset === 0) console.log("delete", Binary.toHex(key), nibbles);
+
   if (offset === nibbles)
     return root.value
       ? {
           ...root,
           // Soft delete to have it marked as removed, otherwise we'd go back to the source
           value: null,
+          hash: getHash(root.children, null),
         }
       : root;
   const nibble = getNibble(key, offset);
@@ -166,63 +169,87 @@ export const getNode = (
 
 export const getDiff = (
   base: StorageNode,
+  // mechanism to overcome we don't have all storage state and it's loaded lazily.
+  // if base has `undefined` values, it will fallback to this node (the one
+  // that mutates as original data is loaded)
+  // `null` means that `base` is already the mutated one.
+  fallback: StorageNode | null,
   other: StorageNode,
   prefix = new Uint8Array(),
   nibbles = 0
 ): {
   insert: StorageNode;
+  prev: StorageNode;
   deleteNodes: Array<{ key: Uint8Array; nibbles: number }>;
   deleteValues: Array<{ key: Uint8Array; nibbles: number }>;
 } => {
-  const children = new Array<StorageNode>(TRIE_SIZE);
+  const insert: Omit<StorageNode, "hash"> = {
+    children: new Array<StorageNode>(TRIE_SIZE),
+  };
+  const prev: Omit<StorageNode, "hash"> = {
+    children: new Array<StorageNode>(TRIE_SIZE),
+  };
   let deleteNodes = new Array<{ key: Uint8Array; nibbles: number }>();
   let deleteValues = new Array<{ key: Uint8Array; nibbles: number }>();
 
   for (let i = 0; i < TRIE_SIZE; i++) {
+    const fallbackNode = fallback?.children[i];
     const baseNode = base.children[i];
+    const completeBase = baseNode ?? fallbackNode;
     const otherNode = other.children[i];
     const childPrefix = setNibble(prefix, nibbles, i);
 
     if (otherNode) {
-      if (baseNode) {
-        if (otherNode.hash === baseNode.hash) continue;
+      if (completeBase) {
+        if (arrU8Eq(otherNode.hash, completeBase.hash)) continue;
 
         const childDiff = getDiff(
-          baseNode,
+          completeBase,
+          baseNode ? fallbackNode ?? null : null,
           otherNode,
           childPrefix,
           nibbles + 1
         );
-        children[i] = childDiff.insert;
+        insert.children[i] = childDiff.insert;
+        prev.children[i] = childDiff.prev;
         deleteNodes = [...deleteNodes, ...childDiff.deleteNodes];
         deleteValues = [...deleteValues, ...childDiff.deleteValues];
       } else {
-        children[i] = otherNode;
+        insert.children[i] = otherNode;
       }
     } else {
-      if (baseNode) {
+      if (completeBase) {
         deleteNodes.push({ key: prefix, nibbles: nibbles + 1 });
+        prev.children[i] = completeBase;
       }
     }
   }
 
-  let value: Uint8Array | undefined;
+  const completeValue = base.value ?? fallback?.value;
   if (other.value) {
-    if (!base.value || (base.value && !arrU8Eq(base.value, other.value))) {
-      value = other.value;
+    if (
+      !completeValue ||
+      (completeValue && !arrU8Eq(completeValue, other.value))
+    ) {
+      insert.value = other.value;
+      prev.value = completeValue;
     }
-  } else if (base.value) {
+  } else if (completeValue) {
     deleteValues.push({
       key: prefix,
       nibbles,
     });
+    prev.value = completeValue;
   }
 
   return {
     insert: {
-      hash: getHash(children, value),
-      children,
-      value,
+      ...insert,
+      hash: getHash(insert.children, insert.value),
+    },
+    prev: {
+      ...prev,
+      hash: getHash(prev.children, prev.value),
     },
     deleteNodes,
     deleteValues,
@@ -244,6 +271,8 @@ export const getDescendantNodes = (
   }
 
   node.children.forEach((child, i) => {
+    if (!child) return;
+
     const childPrefix = setNibble(prefix, nibbles, i);
     result = [
       ...result,

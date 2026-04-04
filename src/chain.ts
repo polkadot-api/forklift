@@ -13,6 +13,7 @@ import {
   deleteValue,
   forEachDescendant,
   getDescendantNodes,
+  getDiff,
   getNode,
   insertValue,
   type StorageNode,
@@ -48,6 +49,13 @@ export interface Chain {
     hash: HexString,
     prefix: HexString
   ) => Promise<Record<HexString, StorageNode>>;
+
+  // prev: undefined means unknown: the storage value wasn't loaded. So it was set, but we don't know the value we had previously
+  // prev: null means the value was empty.
+  getStorageDiff: (
+    hash: HexString,
+    baseHash?: HexString
+  ) => Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -316,6 +324,42 @@ export const createChain = async (
     };
   };
 
+  const getStorageDiff = (hash: HexString, baseHash?: HexString) => {
+    const target = getBlock(hash);
+    if (!target) {
+      throw new Error(`Block not found`);
+    }
+
+    const base = getBlock(baseHash ?? target.parent);
+    if (!base) {
+      throw new Error(`Parent block not loaded`);
+    }
+    const diff = getDiff(
+      base.storageRoot,
+      initialBlock.storageRoot,
+      target.storageRoot
+    );
+    const prevs = Object.fromEntries(
+      getDescendantNodes(diff.prev, new Uint8Array(), 0).map(
+        ({ key, node }) => [Binary.toHex(key), node.value]
+      )
+    );
+
+    const inserts = getDescendantNodes(diff.insert, new Uint8Array(), 0).map(
+      ({ key, node }) => [Binary.toHex(key), node.value!] as const
+    );
+    const deletes = diff.deleteValues.map(
+      ({ key }) => [Binary.toHex(key), null] as const
+    );
+
+    return Object.fromEntries(
+      [...inserts, ...deletes].map(([key, value]) => [
+        key,
+        { value, prev: prevs[key] },
+      ])
+    );
+  };
+
   const newBlock = async (
     opts?: Partial<NewBlockOptions>
   ): Promise<HexString> => {
@@ -377,6 +421,7 @@ export const createChain = async (
     getStorage,
     getStorageBatch,
     getStorageDescendants,
+    getStorageDiff,
   };
 
   const blockMetaSet = setBlockMeta(chain, initialBlock);

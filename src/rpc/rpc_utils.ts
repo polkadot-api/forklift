@@ -1,4 +1,5 @@
 import type {
+  JsonRpcError,
   JsonRpcMessage,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -40,4 +41,13 @@ export const respond = (req: JsonRpcRequest, result: any): JsonRpcResponse => ({
   jsonrpc: "2.0",
   id: req.id!,
   result,
+});
+
+export const errorResponse = (
+  req: JsonRpcRequest,
+  error: JsonRpcError
+): JsonRpcResponse => ({
+  jsonrpc: "2.0",
+  id: req.id!,
+  error,
 });

@@ -16,7 +16,13 @@ import {
   Subscription,
   withLatestFrom,
 } from "rxjs";
-import { getParams, getUuid, respond, type RpcMethod } from "./rpc_utils";
+import {
+  errorResponse,
+  getParams,
+  getUuid,
+  respond,
+  type RpcMethod,
+} from "./rpc_utils";
 import { runRuntimeCall } from "../executor";
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
@@ -27,22 +33,16 @@ const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
     result,
   },
 });
-const blockNotPinned = (req: JsonRpcRequest): JsonRpcResponse => ({
-  jsonrpc: "2.0",
-  id: req.id!,
-  error: {
+const blockNotPinned = (req: JsonRpcRequest) =>
+  errorResponse(req, {
     code: -32801,
     message: "Block not pinned",
-  },
-});
-const blockNotReadable = (req: JsonRpcRequest): JsonRpcResponse => ({
-  jsonrpc: "2.0",
-  id: req.id!,
-  error: {
+  });
+const blockNotReadable = (req: JsonRpcRequest) =>
+  errorResponse(req, {
     code: -32603,
     message: "Block not readable",
-  },
-});
+  });
 
 export const chainHead_v1_follow: RpcMethod = async (
   chain,
@@ -373,7 +373,6 @@ export const chainHead_v1_call: RpcMethod = (
     respond(req, {
       result: "started",
       operationId: opId,
-      discardedItems: [],
     })
   );
 
@@ -391,7 +390,7 @@ export const chainHead_v1_call: RpcMethod = (
           followEvent(followSubscription, {
             event: "operationCallDone",
             operationId: opId,
-            output,
+            output: output.result,
           })
         ),
       error: (e) => {
@@ -410,4 +409,37 @@ export const chainHead_v1_call: RpcMethod = (
       },
     })
   );
+};
+
+export const chainHead_v1_unpin: RpcMethod = (
+  _chain,
+  con,
+  req: JsonRpcRequest<{
+    followSubscription: string;
+    hashOrHashes: HexString | HexString[];
+  }>
+) => {
+  const { followSubscription, hashOrHashes } = getParams(req, [
+    "followSubscription",
+    "hashOrHashes",
+  ]);
+
+  const sub = con.context.chainHead_v1_subs[followSubscription];
+  if (!sub) return con.send(respond(req, null));
+
+  const hashes = Array.isArray(hashOrHashes) ? hashOrHashes : [hashOrHashes];
+  const uniqueHashes = new Set(hashes);
+  if (uniqueHashes.size != hashes.length)
+    return con.send(
+      errorResponse(req, {
+        code: -32804,
+        message: "Duplicate hashes",
+      })
+    );
+  if (hashes.some((hash) => !sub.pinnedBlocks.has(hash)))
+    return con.send(blockNotPinned(req));
+
+  hashes.forEach((hash) => sub.pinnedBlocks.delete(hash));
+
+  return con.send(respond(req, null));
 };

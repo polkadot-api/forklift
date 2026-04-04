@@ -5,22 +5,16 @@ const fork = forklift({
     type: "remote",
     value: {
       url: "wss://sys.ibp.network/asset-hub-polkadot",
+      atBlock:
+        "0x840cf1bdfa6cee142c695411876ba90ca6ef25493d990ceee4c96db6dc761e31",
     },
   },
 });
 
-console.log("Starting newBlock test...");
-fork
-  .newBlock()
-  .then((hash) => {
-    console.log("\n\n========== NEW BLOCK CREATED ==========");
-    console.log("Hash:", hash);
-    console.log("========================================\n\n");
-    process.exit(0);
-  })
-  .catch((err) => {
-    console.error("\n\n========== ERROR ==========");
-    console.error(err);
-    console.error("===========================\n\n");
-    process.exit(1);
-  });
+console.log("create blocks");
+const hashA = await fork.newBlock();
+
+console.log("first block hash:", hashA);
+
+const hashB = await fork.newBlock();
+console.log("second block hash:", hashB);

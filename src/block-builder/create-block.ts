@@ -52,29 +52,13 @@ export const createBlock = async (
   // Create header template for Core_initialize_block
   const height = parent.height + 1;
 
-  const provisionalHeader: BlockHeader = {
-    parentHash: parent.hash,
-    number: height,
-    stateRoot:
-      "0x0000000000000000000000000000000000000000000000000000000000000000",
-    extrinsicRoot:
-      "0x0000000000000000000000000000000000000000000000000000000000000000",
-    // TODO
-    digests: [],
-  };
-
   const extrinsics = [
     await timestampInherent(chain, parent),
     await setValidationDataInherent(chain, parent),
     ...params.transactions,
   ].filter((v) => v !== null);
 
-  const result = await buildBlock(
-    chain,
-    parentHash,
-    Binary.toHex(blockHeader.enc(provisionalHeader)),
-    extrinsics.map((ext) => Binary.toHex(ext))
-  );
+  const result = await buildBlock(chain, height, parentHash, extrinsics);
 
   // Decode the final header from runtime
   const encodedFinalHeader = Binary.fromHex(result.header);
@@ -126,7 +110,7 @@ export const createBlock = async (
     storageRoot: newStorageRoot,
     header: finalHeader,
     runtime,
-    body: extrinsics,
+    body: result.body,
     hasNewRuntime: hasNewRuntime || undefined,
     children: [],
   };
@@ -139,45 +123,55 @@ export const createBlock = async (
 
 const buildBlock = async (
   chain: Chain,
+  height: number,
   parentHash: HexString,
-  provisionalHeader: HexString,
-  extrinsics: HexString[]
-): Promise<{
-  header: HexString;
-  storageDiff: Record<HexString, HexString | null>;
-}> => {
+  extrinsics: Uint8Array[]
+) => {
+  const provisionalHeader: BlockHeader = {
+    parentHash,
+    number: height,
+    stateRoot:
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+    extrinsicRoot:
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+    digests: [],
+  };
+
   // Call Core_initialize_block
-  console.log("Calling initialize block");
   const initResponse = await runRuntimeCall({
     chain,
     hash: parentHash,
     call: "Core_initialize_block",
-    params: provisionalHeader,
+    params: Binary.toHex(blockHeader.enc(provisionalHeader)),
   });
 
   // Apply storage changes
   let storageOverrides: Record<HexString, HexString | null> =
     Object.fromEntries(initResponse.storageDiff);
 
-  console.log("Applying extrinsics");
+  const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
-    const applyResponse = await runRuntimeCall({
-      chain,
-      hash: parentHash,
-      call: "BlockBuilder_apply_extrinsic",
-      params: extrinsic,
-      storageOverrides,
-      // Enable mock signature verification to bypass relay chain header seal verification
-      mockSignatureHost: true,
-    });
+    try {
+      const applyResponse = await runRuntimeCall({
+        chain,
+        hash: parentHash,
+        call: "BlockBuilder_apply_extrinsic",
+        params: Binary.toHex(extrinsic),
+        storageOverrides,
+        // Enable mock signature verification to bypass relay chain header seal verification
+        mockSignatureHost: true,
+      });
+      body.push(extrinsic);
 
-    storageOverrides = {
-      ...storageOverrides,
-      ...Object.fromEntries(applyResponse.storageDiff),
-    };
+      storageOverrides = {
+        ...storageOverrides,
+        ...Object.fromEntries(applyResponse.storageDiff),
+      };
+    } catch (ex) {
+      console.error(ex);
+    }
   }
 
-  console.log("Calling finalize block");
   const finalizeResponse = await runRuntimeCall({
     chain,
     hash: parentHash,
@@ -185,8 +179,6 @@ const buildBlock = async (
     params: "0x",
     storageOverrides,
   });
-
-  console.log("Block built");
 
   // Apply finalize storage changes
   storageOverrides = {
@@ -196,6 +188,7 @@ const buildBlock = async (
 
   return {
     header: finalizeResponse.result,
+    body,
     storageDiff: storageOverrides,
   };
 };

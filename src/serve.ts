@@ -6,6 +6,7 @@ import {
   chainHead_v1_follow,
   chainHead_v1_header,
   chainHead_v1_storage,
+  chainHead_v1_unpin,
 } from "./rpc/chainHead_v1";
 import type { Connection, RpcMethod } from "./rpc/rpc_utils";
 
@@ -14,6 +15,7 @@ const methods: Record<string, RpcMethod> = {
   chainHead_v1_header,
   chainHead_v1_storage,
   chainHead_v1_call,
+  chainHead_v1_unpin,
 };
 
 export const createServer = (chain: Promise<Chain>): JsonRpcProvider => {
@@ -42,6 +44,7 @@ export const createServer = (chain: Promise<Chain>): JsonRpcProvider => {
         if (method) {
           method(await chain, con, req);
         } else {
+          console.log(req);
           send({
             jsonrpc: "2.0",
             id: req.id!,
