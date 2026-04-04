@@ -2,7 +2,6 @@ import { blockHeader } from "@polkadot-api/substrate-bindings";
 import type {
   JsonRpcMessage,
   JsonRpcRequest,
-  JsonRpcResponse,
 } from "@polkadot-api/substrate-client";
 import type { HexString } from "polkadot-api";
 import { Binary } from "polkadot-api";
@@ -16,6 +15,7 @@ import {
   Subscription,
   withLatestFrom,
 } from "rxjs";
+import { runRuntimeCall } from "../executor";
 import {
   errorResponse,
   getParams,
@@ -23,7 +23,6 @@ import {
   respond,
   type RpcMethod,
 } from "./rpc_utils";
-import { runRuntimeCall } from "../executor";
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -45,11 +44,11 @@ const blockNotReadable = (req: JsonRpcRequest) =>
   });
 
 export const chainHead_v1_follow: RpcMethod = async (
-  chain,
   con,
   req: JsonRpcRequest<{
     withRuntime: boolean;
-  }>
+  }>,
+  { chain }
 ) => {
   const { withRuntime } = getParams(req, ["withRuntime"]);
 
@@ -180,12 +179,12 @@ export const chainHead_v1_follow: RpcMethod = async (
 };
 
 export const chainHead_v1_header: RpcMethod = (
-  chain,
   con,
   req: JsonRpcRequest<{
     followSubscription: string;
     hash: string;
-  }>
+  }>,
+  { chain }
 ) => {
   const { followSubscription, hash } = getParams(req, [
     "followSubscription",
@@ -204,7 +203,6 @@ export const chainHead_v1_header: RpcMethod = (
 };
 
 export const chainHead_v1_storage: RpcMethod = (
-  chain,
   con,
   req: JsonRpcRequest<{
     followSubscription: string;
@@ -219,7 +217,8 @@ export const chainHead_v1_storage: RpcMethod = (
         | "descendantsHashes";
     }>;
     childTrie: HexString | null;
-  }>
+  }>,
+  { chain }
 ) => {
   const { followSubscription, hash, items, childTrie } = getParams(req, [
     "followSubscription",
@@ -332,14 +331,14 @@ export const chainHead_v1_storage: RpcMethod = (
 };
 
 export const chainHead_v1_call: RpcMethod = (
-  chain,
   con,
   req: JsonRpcRequest<{
     followSubscription: string;
     hash: HexString;
     function: HexString;
     callParameters: HexString;
-  }>
+  }>,
+  { chain }
 ) => {
   const {
     followSubscription,
@@ -412,12 +411,12 @@ export const chainHead_v1_call: RpcMethod = (
 };
 
 export const chainHead_v1_unpin: RpcMethod = (
-  _chain,
   con,
   req: JsonRpcRequest<{
     followSubscription: string;
     hashOrHashes: HexString | HexString[];
-  }>
+  }>,
+  {}
 ) => {
   const { followSubscription, hashOrHashes } = getParams(req, [
     "followSubscription",

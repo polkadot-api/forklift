@@ -6,6 +6,7 @@ import type {
 } from "@polkadot-api/substrate-client";
 import { Subscription, type Observable } from "rxjs";
 import type { Chain } from "../chain";
+import type { TxPool } from "../txPool";
 
 export interface Connection {
   disconnect$: Observable<void>;
@@ -22,9 +23,9 @@ export interface Connection {
 }
 
 export type RpcMethod = (
-  chain: Chain,
   con: Connection,
-  req: JsonRpcRequest
+  req: JsonRpcRequest,
+  forkliftComponents: { chain: Chain; txPool: TxPool }
 ) => void;
 
 export const getParams = <T>(req: JsonRpcRequest<T>, params: string[]): T =>

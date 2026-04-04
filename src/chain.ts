@@ -60,21 +60,31 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-// const EMPTY = {};
-// const lazyValue = <T>(cb: () => T | Promise<T>) => {
-//   let value: any = EMPTY;
-//   return (): Promise<T> => {
-//     if (value === EMPTY) value = cb();
-//     return Promise.resolve(value);
-//   };
-// };
-
 const cacheFile = "code.bin";
 
+export const enum BuildBlockMode {
+  Batch = "batch",
+  Manual = "manual",
+  Timer = "timer",
+}
+
+export interface ChainOptions {
+  buildBlockMode: BuildBlockMode;
+  mockSignatureHost?: (signature: Uint8Array) => boolean;
+}
+const defaultOptions: ChainOptions = {
+  buildBlockMode: BuildBlockMode.Batch,
+};
+
 export const createChain = async (
-  sourceP: Source | Promise<Source>
+  sourceP: Source | Promise<Source>,
+  options: Partial<ChainOptions> = {}
 ): Promise<Chain> => {
   const source = await sourceP;
+  let { buildBlockMode, mockSignatureHost } = {
+    ...defaultOptions,
+    ...options,
+  };
 
   // Fetch the runtime code from the source
   console.log("Loading code");

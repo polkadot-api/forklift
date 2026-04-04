@@ -1,20 +1,31 @@
+import { Binary, createClient } from "polkadot-api";
 import { forklift } from "./src/forklift";
+import { aliceSigner } from "./signer";
 
 const fork = forklift({
   source: {
     type: "remote",
     value: {
-      url: "wss://sys.ibp.network/asset-hub-polkadot",
-      atBlock:
-        "0x840cf1bdfa6cee142c695411876ba90ca6ef25493d990ceee4c96db6dc761e31",
+      url: "wss://sys.ibp.network/asset-hub-paseo",
     },
   },
 });
 
-console.log("create blocks");
-const hashA = await fork.newBlock();
+// for (let i = 0; ; i++) {
+//   const start = Date.now();
+//   const hash = await fork.newBlock();
+//   console.log(`block ${i} hash:`, hash);
+//   console.log("build time", Date.now() - start);
+// }
 
-console.log("first block hash:", hashA);
+const client = createClient(fork.serve);
+const res = await client
+  .getUnsafeApi()
+  .tx.System.remark({
+    remark: Binary.fromText("Hey")!,
+  })
+  .signAndSubmit(aliceSigner);
 
-const hashB = await fork.newBlock();
-console.log("second block hash:", hashB);
+console.log(res);
+
+client.destroy();

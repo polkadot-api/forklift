@@ -1,15 +1,9 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
-import { Binary, type HexString } from "polkadot-api";
-import { createChain, type NewBlockOptions } from "./chain";
+import { type HexString } from "polkadot-api";
+import { BuildBlockMode, createChain, type NewBlockOptions } from "./chain";
 import { createServer } from "./serve";
 import { createGenesisSource, createRemoteSource } from "./source";
-import { getDescendantNodes, getDiff } from "./storage";
-
-export enum BuildBlockMode {
-  Batch = "Batch",
-  Instant = "Instant",
-  Manual = "Manual",
-}
+import { createTxPool } from "./txPool";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -55,9 +49,10 @@ export function forklift(params: ForkliftParams): Forklift {
         })
       : createGenesisSource();
   const chain = createChain(source);
+  const txPool = createTxPool(chain);
 
   return {
-    serve: createServer(chain),
+    serve: createServer(chain, txPool),
     newBlock: (opts) => chain.then((c) => c.newBlock(opts)),
     changeBest: (hash) => chain.then((c) => c.changeBest(hash)),
     changeFinalized: (hash) => chain.then((c) => c.changeFinalized(hash)),

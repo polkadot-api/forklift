@@ -103,6 +103,23 @@ export const getTxCodec = (
   }
 };
 
+export const getCallCodec = (
+  block: Block,
+  palletName: string,
+  apiName: string
+) => {
+  const meta = blockMeta.get(block);
+  if (!meta) {
+    throw new Error("Block doesn't have metadata set");
+  }
+
+  try {
+    return meta.dynamicBuilder.buildRuntimeCall(palletName, apiName);
+  } catch (ex) {
+    return null;
+  }
+};
+
 export const getCallData = (
   block: Block,
   palletName: string,
