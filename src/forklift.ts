@@ -1,9 +1,10 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
-import { type HexString } from "polkadot-api";
-import { BuildBlockMode, createChain, type NewBlockOptions } from "./chain";
+import { Enum, type HexString } from "polkadot-api";
+import { createChain, type NewBlockOptions } from "./chain";
 import { createServer } from "./serve";
 import { createGenesisSource, createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
+import { combineLatest, firstValueFrom } from "rxjs";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -21,44 +22,158 @@ export interface Forklift {
   ) => Promise<
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
-  setBuildBlockMode: (mode: BuildBlockMode) => void;
+
+  changeOptions: (options: Partial<ForkliftOptions>) => void;
+  destroy: () => void;
 }
 
-export interface ForkliftParams {
-  source:
-    | {
-        type: "remote";
-        value: {
-          url: string | string[];
-          atBlock?: number | string;
-        };
-      }
-    | {
-        type: "genesis";
-        value: Record<string, string>;
-      };
-  buildBlockMode?: BuildBlockMode;
+export type ForkliftSource = Enum<{
+  remote: {
+    url: string | string[];
+    atBlock?: number | string;
+  };
+  genesis: Record<string, string>;
+}>;
+
+export type DelayMode = Enum<{
+  manual: undefined;
+  timer: number;
+}>;
+
+export interface ForkliftOptions {
+  buildBlockMode: DelayMode;
+  finalizeMode: DelayMode;
   mockSignatureHost?: (signature: Uint8Array) => boolean;
 }
 
-export function forklift(params: ForkliftParams): Forklift {
+const defaultOptions: ForkliftOptions = {
+  buildBlockMode: Enum("timer", 100),
+  finalizeMode: Enum("timer", 2000),
+};
+
+type Timeout = ReturnType<typeof setTimeout>;
+export function forklift(
+  sourceDef: ForkliftSource,
+  opts?: Partial<ForkliftOptions>
+): Forklift {
   const source =
-    params.source.type === "remote"
-      ? createRemoteSource(params.source.value.url, {
-          atBlock: params.source.value.atBlock,
+    sourceDef.type === "remote"
+      ? createRemoteSource(sourceDef.value.url, {
+          atBlock: sourceDef.value.atBlock,
         })
       : createGenesisSource();
+  let options = { ...defaultOptions, ...opts };
   const chain = createChain(source);
   const txPool = createTxPool(chain);
 
+  let buildBlockQueue: Promise<void> | null = null;
+  let blocksEnqueued = 0;
+  const finalizeTimers = new Set<Timeout>();
+  const newBlock = async (
+    opts?: Partial<NewBlockOptions>,
+    automatic?: boolean
+  ) => {
+    if (buildBlockQueue) {
+      blocksEnqueued++;
+      while (buildBlockQueue) {
+        await buildBlockQueue;
+      }
+      blocksEnqueued--;
+    }
+
+    let resolve: () => void = () => {};
+    buildBlockQueue = new Promise<void>(async (res) => (resolve = res));
+
+    try {
+      const c = await chain;
+      const type =
+        opts?.type ||
+        (options.finalizeMode.type === "timer" &&
+        options.finalizeMode.value === 0
+          ? "finalized"
+          : undefined);
+      const parent = opts?.parent ?? (await firstValueFrom(c.best$));
+      const parentBlock = c.getBlock(parent)!;
+
+      const transactions =
+        opts?.transactions ?? (await txPool.getTxsForBlock(parentBlock));
+      // An automatic trigger from tx pool should not produce the block if the block won't have any tx
+      if (automatic && transactions.length === 0) {
+        console.log(
+          "Skipped building automatic block: none of the transactions are ready"
+        );
+        return parent;
+      }
+      const block = await c.newBlock({ ...opts, type, parent, transactions });
+
+      if (type == null) {
+        // best changes immediately if it became higher
+        const [best, blocks] = await firstValueFrom(
+          combineLatest([c.best$, c.blocks$])
+        );
+        if (block.height > blocks[best]!.height) {
+          c.changeBest(block.hash);
+        }
+
+        if (options.finalizeMode.type === "timer") {
+          const timer = setTimeout(() => {
+            try {
+              c.changeFinalized(block.hash);
+              // in cases of competing forks it can fail
+            } catch {}
+            finalizeTimers.delete(timer);
+          }, options.finalizeMode.value);
+          finalizeTimers.add(timer);
+        }
+      }
+
+      return block.hash;
+    } finally {
+      buildBlockQueue = null;
+      resolve();
+    }
+  };
+
+  let txBlockPending = false;
+  const txPoolSub = txPool.txAdded$.subscribe(() => {
+    if (options.buildBlockMode.type === "manual") return;
+    if (txBlockPending || blocksEnqueued) {
+      // Another tx has triggered a new block, this will get included
+      return;
+    }
+
+    const delay = options.buildBlockMode.value;
+    if (delay === 0) {
+      return newBlock(undefined, true);
+    }
+    txBlockPending = true;
+    setTimeout(() => {
+      txBlockPending = false;
+      if (!blocksEnqueued) newBlock(undefined, true);
+    }, delay);
+  });
+
   return {
     serve: createServer(chain, txPool),
-    newBlock: (opts) => chain.then((c) => c.newBlock(opts)),
+    newBlock: (opts) => newBlock(opts),
     changeBest: (hash) => chain.then((c) => c.changeBest(hash)),
-    changeFinalized: (hash) => chain.then((c) => c.changeFinalized(hash)),
+    changeFinalized: (hash) => {
+      finalizeTimers.forEach(clearTimeout);
+      finalizeTimers.clear();
+      return chain.then((c) => c.changeFinalized(hash));
+    },
     setStorage: (hash, changes) =>
       chain.then((c) => c.setStorage(hash, changes)),
     getStorageDiff: (hash, baseHash) =>
       chain.then((c) => c.getStorageDiff(hash, baseHash)),
-  } as Forklift;
+    changeOptions(opts) {
+      // TODO I think assumptions can be broken by passing { someOption: undefined }
+      options = { ...options, ...opts };
+    },
+    destroy() {
+      txPoolSub.unsubscribe();
+      txPool.destroy();
+      source.then((s) => s.disconnect());
+    },
+  };
 }

@@ -11,10 +11,10 @@ import {
   from,
   map,
   merge,
-  pairwise,
   Subscription,
   withLatestFrom,
 } from "rxjs";
+import { finalizedAndPruned$ } from "../chain";
 import { runRuntimeCall } from "../executor";
 import {
   errorResponse,
@@ -133,48 +133,15 @@ export const chainHead_v1_follow: RpcMethod = async (
     })
   );
   subscription.add(
-    chain.finalized$
-      .pipe(pairwise(), withLatestFrom(chain.blocks$))
-      .subscribe(([[prev, next], blocks]) => {
-        const finalizedBlockHashes = [next];
-        let blockHash = next;
-        while (
-          blocks[blockHash]?.parent !== prev &&
-          blocks[blockHash]?.parent! in blocks
-        ) {
-          blockHash = blocks[blockHash]!.parent;
-          finalizedBlockHashes.push(blockHash);
-        }
-        finalizedBlockHashes.reverse();
-
-        const prunedBlockHashes: HexString[] = [];
-        const pruneBranch = (hash: HexString) => {
-          const block = blocks[hash];
-          if (!block) return;
-          prunedBlockHashes.push(hash);
-          block.children.forEach(pruneBranch);
-        };
-
-        let i = 0;
-        blockHash = prev;
-        while (blockHash !== next) {
-          const block = blocks[blockHash]!;
-          for (const child of block.children) {
-            if (child === finalizedBlockHashes[i]) continue;
-            pruneBranch(child);
-          }
-          blockHash = finalizedBlockHashes[i]!;
-          i++;
-        }
-
-        con.send(
-          followEvent(subId, {
-            event: "finalized",
-            finalizedBlockHashes,
-            prunedBlockHashes,
-          })
-        );
-      })
+    finalizedAndPruned$(chain).subscribe(({ finalized, pruned }) => {
+      con.send(
+        followEvent(subId, {
+          event: "finalized",
+          finalizedBlockHashes: finalized,
+          prunedBlockHashes: pruned,
+        })
+      );
+    })
   );
 };
 
@@ -408,6 +375,65 @@ export const chainHead_v1_call: RpcMethod = (
       },
     })
   );
+};
+
+export const chainHead_v1_body: RpcMethod = (
+  con,
+  req: JsonRpcRequest<{
+    followSubscription: string;
+    hash: string;
+  }>,
+  { chain }
+) => {
+  const { followSubscription, hash } = getParams(req, [
+    "followSubscription",
+    "hash",
+  ]);
+
+  const sub = con.context.chainHead_v1_subs[followSubscription];
+  if (!sub) return con.send(respond(req, { result: "limitReached" }));
+
+  if (!sub.pinnedBlocks.has(hash)) return con.send(blockNotPinned(req));
+
+  const block = chain.getBlock(hash);
+  if (!block) return con.send(blockNotReadable(req));
+
+  const opId = getUuid();
+  con.send(
+    respond(req, {
+      result: "started",
+      operationId: opId,
+    })
+  );
+
+  con.send(
+    followEvent(followSubscription, {
+      event: "operationBodyDone",
+      operationId: opId,
+      value: block.body.map(Binary.toHex),
+    })
+  );
+};
+
+export const chainHead_v1_stopOperation: RpcMethod = (
+  con,
+  req: JsonRpcRequest<{
+    followSubscription: string;
+    operationId: string;
+  }>,
+  { chain }
+) => {
+  const { followSubscription, operationId } = getParams(req, [
+    "followSubscription",
+    "operationId",
+  ]);
+
+  con.send(respond(req, null));
+
+  const sub = con.context.chainHead_v1_subs[followSubscription];
+  if (!sub?.operations[operationId]) return;
+  sub.operations[operationId].unsubscribe();
+  delete sub.operations[operationId];
 };
 
 export const chainHead_v1_unpin: RpcMethod = (

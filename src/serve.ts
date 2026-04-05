@@ -2,9 +2,11 @@ import type { JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Subject } from "rxjs";
 import type { Chain } from "./chain";
 import {
+  chainHead_v1_body,
   chainHead_v1_call,
   chainHead_v1_follow,
   chainHead_v1_header,
+  chainHead_v1_stopOperation,
   chainHead_v1_storage,
   chainHead_v1_unpin,
 } from "./rpc/chainHead_v1";
@@ -16,10 +18,12 @@ import {
 import type { TxPool } from "./txPool";
 
 const methods: Record<string, RpcMethod> = {
+  chainHead_v1_body,
+  chainHead_v1_call,
   chainHead_v1_follow,
   chainHead_v1_header,
+  chainHead_v1_stopOperation,
   chainHead_v1_storage,
-  chainHead_v1_call,
   chainHead_v1_unpin,
   transaction_v1_broadcast,
   transaction_v1_stop,

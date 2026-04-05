@@ -1,37 +1,41 @@
-import { Binary, Enum, type ResultPayload } from "polkadot-api";
+import { Binary, Enum, type HexString, type ResultPayload } from "polkadot-api";
 import {
-  BehaviorSubject,
   combineLatest,
   firstValueFrom,
+  from,
   Observable,
+  Subject,
+  Subscription,
+  switchMap,
+  withLatestFrom,
 } from "rxjs";
 import type { Block } from "./block-builder/create-block";
-import type { Chain } from "./chain";
+import { finalizedAndPruned$, type Chain } from "./chain";
 import { getCallCodec } from "./codecs";
 import { runRuntimeCall } from "./executor";
 
-export interface ValidatedTx {
-  extrinsic: Uint8Array;
-  validatedAgainst: Block;
+type Validation = {
+  provides: Set<HexString>;
+  requires: Set<HexString>;
   priority: bigint;
-  longevity: bigint;
-  includedAt?: Block;
-}
+};
+type BlockTxPool = Map<Uint8Array, Promise<Validation>>;
 
 /**
  * This tx pool is simplified: There's just one set of transactions, that get
  * validated against the best block, but fallbacking to others.
  */
 export interface TxPool {
-  addTx: (tx: Uint8Array) => Promise<ValidatedTx>;
+  addTx: (tx: Uint8Array) => Promise<void>;
   getTxsForBlock: (block: Block) => Promise<Uint8Array[]>;
-  markIncluded: (tx: Uint8Array, block: Block) => void;
+  destroy: () => void;
 
-  txs$: Observable<ValidatedTx[]>;
+  txAdded$: Observable<void>;
 }
 
 export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
-  const txs$ = new BehaviorSubject<ValidatedTx[]>([]);
+  const blocksTxPool: Record<HexString, BlockTxPool> = {};
+  const txAdded$ = new Subject<void>();
 
   const validateTx = async (
     block: Block,
@@ -41,6 +45,8 @@ export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
       {
         priority: bigint;
         longevity: bigint;
+        provides: Array<Uint8Array>;
+        requires: Array<Uint8Array>;
       },
       {}
     >
@@ -66,32 +72,183 @@ export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
     return codec.value.dec(result.result);
   };
 
+  const getAliveBlocks = async () => {
+    const chain = await chainP;
+    const [finalized, blocks] = await firstValueFrom(
+      combineLatest([chain.finalized$, chain.blocks$])
+    );
+
+    const heads: Block[] = [];
+    const include = (hash: HexString) => {
+      const block = blocks[hash]!;
+      heads.push(block);
+      block.children.forEach(include);
+    };
+    include(finalized);
+    return heads;
+  };
+
+  const subscription = new Subscription();
+  subscription.add(
+    from(Promise.resolve(chainP))
+      .pipe(
+        switchMap((chain) =>
+          chain.newBlocks$.pipe(withLatestFrom(chain.blocks$))
+        )
+      )
+      .subscribe(([blockHash, blocks]) => {
+        const block = blocks[blockHash]!;
+
+        const parentTxPool: BlockTxPool =
+          blocksTxPool[block.parent] ?? new Map();
+        const txPool: BlockTxPool = (blocksTxPool[block.hash] = new Map());
+
+        parentTxPool.forEach((validation, tx) => {
+          if (block.body.includes(tx)) return;
+          txPool.set(tx, validation);
+        });
+      })
+  );
+  subscription.add(
+    from(Promise.resolve(chainP))
+      .pipe(switchMap((chain) => finalizedAndPruned$(chain)))
+      .subscribe(({ pruned }) =>
+        pruned.forEach((hash) => {
+          const txPool = blocksTxPool[hash];
+          if (!txPool) return;
+          txPool.clear();
+          delete blocksTxPool[hash];
+        })
+      )
+  );
+
   return {
     async addTx(tx) {
-      const chain = await chainP;
-      const [best, finalized, blocks] = await firstValueFrom(
-        combineLatest([chain.best$, chain.finalized$, chain.blocks$])
-      );
-      const bestBlock = blocks[best]!;
-      const bestValid = await validateTx(bestBlock, tx);
-      console.log("bestValid", bestValid);
+      const blocks = await getAliveBlocks();
 
-      if (bestValid.success) {
-        const validatedTx: ValidatedTx = {
-          extrinsic: tx,
-          longevity: bestValid.value.longevity,
-          priority: bestValid.value.priority,
-          validatedAgainst: bestBlock,
-        };
-        txs$.next([...txs$.getValue(), validatedTx]);
-        return validatedTx;
-      }
-      // TODO try other blocks
-      throw new Error("Transaction invalid");
+      blocks.forEach((block) => {
+        const txPool = (blocksTxPool[block.hash] ??= new Map());
+        if (txPool.has(tx)) return;
+
+        txPool.set(
+          tx,
+          validateTx(block, tx).then((res) => {
+            if (!res.success) {
+              console.error(
+                "Invalid transaction at block",
+                block.hash,
+                res.value
+              );
+              throw res.value;
+            }
+            return {
+              priority: res.value.priority,
+              provides: new Set(res.value.provides.map(Binary.toHex)),
+              requires: new Set(res.value.requires.map(Binary.toHex)),
+            };
+          })
+        );
+      });
+
+      txAdded$.next();
     },
-    getTxsForBlock: async (block) => [],
-    markIncluded: (tx: Uint8Array, block: Block) => {},
+    getTxsForBlock: async (block) => {
+      const blockTxPool = blocksTxPool[block.hash];
+      if (!blockTxPool) return [];
 
-    txs$,
+      const awaitedTxs = await Promise.all(
+        blockTxPool.entries().map(async ([tx, validateP]) => {
+          try {
+            return { tx, validation: await validateP };
+          } catch {
+            return { tx, validation: null };
+          }
+        })
+      );
+
+      // prune invalid transactions from the block
+      awaitedTxs.forEach((tx) => {
+        if (tx.validation == null) {
+          blockTxPool.delete(tx.tx);
+        }
+      });
+
+      const validTxs = awaitedTxs.filter((v) => v.validation != null);
+
+      return sortValidatedTxs(validTxs);
+    },
+    destroy() {
+      subscription.unsubscribe();
+      for (const hash in blocksTxPool) {
+        blocksTxPool[hash]!.clear();
+        delete blocksTxPool[hash];
+      }
+    },
+    txAdded$: txAdded$.asObservable(),
   };
+};
+
+const sortValidatedTxs = (
+  txs: Array<{
+    tx: Uint8Array<ArrayBufferLike>;
+    validation: Validation;
+  }>
+) => {
+  const result = txs.filter((tx) => tx.validation.requires.size === 0);
+  let pending = txs.filter((tx) => tx.validation.requires.size > 0);
+
+  const providedTags: Record<HexString, bigint> = {};
+  const includeTags = (tx: {
+    tx: Uint8Array<ArrayBufferLike>;
+    validation: Validation;
+  }) =>
+    tx.validation.provides.forEach((tag) => {
+      const p = tx.validation.priority;
+      const v = providedTags[tag];
+      // Keep the highest priority, as we want to be less restrictive with other txs.
+      providedTags[tag] = v == null ? p : v < p ? p : v;
+    });
+  result.forEach(includeTags);
+
+  let toPromote: typeof result;
+  do {
+    const pendingPromotion = pending.map((original) => {
+      const maxPriority = [...original.validation.requires]
+        .map((req) => providedTags[req])
+        .reduce(
+          (a, b) => (a == null || b == null ? undefined : a > b ? b : a),
+          BigInt(Number.MAX_SAFE_INTEGER)
+        );
+      if (maxPriority == null) {
+        return { type: "pending", tx: original };
+      }
+      return {
+        type: "promote",
+        tx: {
+          ...original,
+          validation: {
+            ...original.validation,
+            // put it below the last tag provider
+            priority: maxPriority - 1n,
+          },
+        },
+      };
+    });
+    toPromote = pendingPromotion
+      .filter((pp) => pp.type === "promote")
+      .map((pp) => pp.tx);
+    pending = pendingPromotion
+      .filter((pp) => pp.type === "pending")
+      .map((pp) => pp.tx);
+    toPromote.forEach((tx) => {
+      includeTags(tx);
+      result.push(tx);
+    });
+  } while (toPromote.length > 0);
+
+  const sorted = result.sort((a, b) =>
+    Number(b.validation.priority - a.validation.priority)
+  );
+  console.log("sorted transactions", sorted);
+  return sorted.map((v) => v.tx);
 };

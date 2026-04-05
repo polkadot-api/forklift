@@ -1,5 +1,13 @@
+import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
-import { BehaviorSubject, Subject, type Observable } from "rxjs";
+import {
+  BehaviorSubject,
+  map,
+  pairwise,
+  Subject,
+  withLatestFrom,
+  type Observable,
+} from "rxjs";
 import {
   createBlock,
   type Block,
@@ -18,7 +26,6 @@ import {
   insertValue,
   type StorageNode,
 } from "./storage";
-import { file } from "bun";
 
 export interface NewBlockOptions extends CreateBlockParams {
   type: "best" | "finalized" | "fork";
@@ -32,7 +39,7 @@ export interface Chain {
 
   getBlock: (hash: HexString) => Block | undefined;
 
-  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<HexString>;
+  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<Block>;
   changeBest: (hash: HexString) => void;
   changeFinalized: (hash: HexString) => void;
   setStorage: (
@@ -62,27 +69,16 @@ const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
 const cacheFile = "code.bin";
 
-export const enum BuildBlockMode {
-  Batch = "batch",
-  Manual = "manual",
-  Timer = "timer",
-}
-
 export interface ChainOptions {
-  buildBlockMode: BuildBlockMode;
   mockSignatureHost?: (signature: Uint8Array) => boolean;
 }
-const defaultOptions: ChainOptions = {
-  buildBlockMode: BuildBlockMode.Batch,
-};
 
 export const createChain = async (
   sourceP: Source | Promise<Source>,
   options: Partial<ChainOptions> = {}
 ): Promise<Chain> => {
   const source = await sourceP;
-  let { buildBlockMode, mockSignatureHost } = {
-    ...defaultOptions,
+  let { mockSignatureHost } = {
     ...options,
   };
 
@@ -370,21 +366,23 @@ export const createChain = async (
     );
   };
 
-  const newBlock = async (
-    opts?: Partial<NewBlockOptions>
-  ): Promise<HexString> => {
+  const newBlock = async (opts?: Partial<NewBlockOptions>): Promise<Block> => {
+    // TODO await blockMetaSet... of parent!
     await blockMetaSet;
 
     const {
-      type = "finalized",
+      type = "fork",
       dmp = [],
       hrmp = [],
-      parent = finalized$.getValue(),
+      parent = best$.getValue(),
       storage = {},
       transactions = [],
       ump = {},
       unsafeBlockHeight,
     } = opts ?? {};
+
+    assertBlock(parent);
+    assertFinalizedDescendant(parent);
 
     const block = await createBlock(chain, {
       dmp,
@@ -395,6 +393,10 @@ export const createChain = async (
       ump,
       unsafeBlockHeight,
     });
+
+    // If the finalized has changed while we were building the block and this one
+    // became pruned, then we should fail.
+    assertFinalizedDescendant(parent);
 
     // Add block to blocks$
     blocks$.next({
@@ -415,7 +417,7 @@ export const createChain = async (
       finalized$.next(block.hash);
     }
 
-    return block.hash;
+    return block;
   };
 
   const chain: Chain = {
@@ -438,3 +440,46 @@ export const createChain = async (
 
   return chain;
 };
+
+export const finalizedAndPruned$ = (chain: Chain) =>
+  chain.finalized$.pipe(
+    pairwise(),
+    withLatestFrom(chain.blocks$),
+    map(([[prev, next], blocks]) => {
+      const finalized = [next];
+      let blockHash = next;
+      while (
+        blocks[blockHash]?.parent !== prev &&
+        blocks[blockHash]?.parent! in blocks
+      ) {
+        blockHash = blocks[blockHash]!.parent;
+        finalized.push(blockHash);
+      }
+      finalized.reverse();
+
+      const pruned: HexString[] = [];
+      const pruneBranch = (hash: HexString) => {
+        const block = blocks[hash];
+        if (!block) return;
+        pruned.push(hash);
+        block.children.forEach(pruneBranch);
+      };
+
+      let i = 0;
+      blockHash = prev;
+      while (blockHash !== next) {
+        const block = blocks[blockHash]!;
+        for (const child of block.children) {
+          if (child === finalized[i]) continue;
+          pruneBranch(child);
+        }
+        blockHash = finalized[i]!;
+        i++;
+      }
+
+      return {
+        finalized,
+        pruned,
+      };
+    })
+  );
