@@ -1,4 +1,7 @@
-import { createClient } from "@polkadot-api/substrate-client";
+import {
+  createClient,
+  type ChainSpecData,
+} from "@polkadot-api/substrate-client";
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
 import { Binary, type BlockHeader, type HexString } from "polkadot-api";
@@ -21,6 +24,8 @@ export interface Source {
   getStorageDescendants(
     prefix: HexString
   ): Promise<Record<HexString, Uint8Array>>;
+
+  getChainSpecData(): Promise<ChainSpecData>;
 
   /** Disconnect from the source */
   destroy(): void;
@@ -150,6 +155,10 @@ export const createRemoteSource = (
         result[key] = Binary.fromHex(value);
       }
       return result;
+    },
+
+    getChainSpecData() {
+      return substrateClient.getChainSpecData();
     },
 
     destroy(): void {

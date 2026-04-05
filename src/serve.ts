@@ -11,11 +11,17 @@ import {
   chainHead_v1_unfollow,
   chainHead_v1_unpin,
 } from "./rpc/chainHead_v1";
+import {
+  chainSpec_v1_chainName,
+  chainSpec_v1_genesisHash,
+  chainSpec_v1_properties,
+} from "./rpc/chainSpec_v1";
 import type { Connection, RpcMethod } from "./rpc/rpc_utils";
 import {
   transaction_v1_broadcast,
   transaction_v1_stop,
 } from "./rpc/transaction_v1";
+import type { Source } from "./source";
 import type { TxPool } from "./txPool";
 
 export const methods: Record<string, RpcMethod> = {
@@ -27,11 +33,18 @@ export const methods: Record<string, RpcMethod> = {
   chainHead_v1_storage,
   chainHead_v1_unfollow,
   chainHead_v1_unpin,
+  chainSpec_v1_chainName,
+  chainSpec_v1_genesisHash,
+  chainSpec_v1_properties,
   transaction_v1_broadcast,
   transaction_v1_stop,
 };
 
-export const createServer = (chain: Chain, txPool: TxPool): JsonRpcProvider => {
+export const createServer = (
+  source: Source,
+  chain: Chain,
+  txPool: TxPool
+): JsonRpcProvider => {
   return (send) => {
     const disconnect = new Subject<void>();
     const con: Connection = {
@@ -55,7 +68,7 @@ export const createServer = (chain: Chain, txPool: TxPool): JsonRpcProvider => {
 
         const method = methods[req.method];
         if (method) {
-          method(con, req, { chain, txPool });
+          method(con, req, { source, chain, txPool });
         } else {
           console.log(req);
           send({

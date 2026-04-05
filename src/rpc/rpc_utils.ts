@@ -7,6 +7,7 @@ import type {
 import { Subscription, type Observable } from "rxjs";
 import type { Chain } from "../chain";
 import type { TxPool } from "../txPool";
+import type { Source } from "../source";
 
 export interface Connection {
   disconnect$: Observable<void>;
@@ -25,7 +26,7 @@ export interface Connection {
 export type RpcMethod = (
   con: Connection,
   req: JsonRpcRequest,
-  forkliftComponents: { chain: Chain; txPool: TxPool }
+  forkliftComponents: { chain: Chain; txPool: TxPool; source: Source }
 ) => void;
 
 export const getParams = <T>(req: JsonRpcRequest<T>, params: string[]): T =>
