@@ -8,6 +8,7 @@ import { Subscription, type Observable } from "rxjs";
 import type { Chain } from "../chain";
 import type { TxPool } from "../txPool";
 import type { Source } from "../source";
+import type { Forklift } from "../forklift";
 
 export interface Connection {
   disconnect$: Observable<void>;
@@ -23,10 +24,17 @@ export interface Connection {
   };
 }
 
-export type RpcMethod = (
+export type ServerContext = {
+  source: Source;
+  chain: Chain;
+  txPool: TxPool;
+  newBlock: Forklift["newBlock"];
+};
+
+export type RpcMethod<T = any> = (
   con: Connection,
-  req: JsonRpcRequest,
-  forkliftComponents: { chain: Chain; txPool: TxPool; source: Source }
+  req: JsonRpcRequest<T>,
+  ctx: ServerContext
 ) => void;
 
 export const getParams = <T>(req: JsonRpcRequest<T>, params: string[]): T =>

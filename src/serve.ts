@@ -1,6 +1,5 @@
 import type { JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Subject } from "rxjs";
-import type { Chain } from "./chain";
 import {
   chainHead_v1_body,
   chainHead_v1_call,
@@ -16,13 +15,12 @@ import {
   chainSpec_v1_genesisHash,
   chainSpec_v1_properties,
 } from "./rpc/chainSpec_v1";
-import type { Connection, RpcMethod } from "./rpc/rpc_utils";
+import { dev_newBlock, dev_setStorage } from "./rpc/dev";
+import type { Connection, RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import {
   transaction_v1_broadcast,
   transaction_v1_stop,
 } from "./rpc/transaction_v1";
-import type { Source } from "./source";
-import type { TxPool } from "./txPool";
 
 export const methods: Record<string, RpcMethod> = {
   chainHead_v1_body,
@@ -36,15 +34,13 @@ export const methods: Record<string, RpcMethod> = {
   chainSpec_v1_chainName,
   chainSpec_v1_genesisHash,
   chainSpec_v1_properties,
+  dev_newBlock,
+  dev_setStorage,
   transaction_v1_broadcast,
   transaction_v1_stop,
 };
 
-export const createServer = (
-  source: Source,
-  chain: Chain,
-  txPool: TxPool
-): JsonRpcProvider => {
+export const createServer = (ctx: ServerContext): JsonRpcProvider => {
   return (send) => {
     const disconnect = new Subject<void>();
     const con: Connection = {
@@ -62,13 +58,13 @@ export const createServer = (
           return send({
             jsonrpc: "2.0",
             id: req.id!,
-            result: Object.keys(methods),
+            result: { methods: Object.keys(methods) },
           });
         }
 
         const method = methods[req.method];
         if (method) {
-          method(con, req, { source, chain, txPool });
+          method(con, req, ctx);
         } else {
           console.log(req);
           send({

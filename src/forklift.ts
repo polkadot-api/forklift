@@ -151,7 +151,7 @@ export function forklift(
   });
 
   return {
-    serve: createServer(source, chain, txPool),
+    serve: createServer({ source, chain, txPool, newBlock }),
     newBlock: (opts) => newBlock(opts),
     changeBest: async (hash) => chain.changeBest(hash),
     changeFinalized: async (hash) => {
