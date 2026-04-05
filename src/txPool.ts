@@ -51,11 +51,14 @@ export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
       {}
     >
   > => {
-    const codec = getCallCodec(
+    const codec = await getCallCodec(
       block,
       "TaggedTransactionQueue",
       "validate_transaction"
     )!;
+    if (!codec)
+      throw new Error("TaggedTransactionQueue_validate_transaction required");
+
     const result = await runRuntimeCall({
       chain: await chainP,
       hash: block.hash,

@@ -6,7 +6,7 @@ import { getCurrentTimestamp, getSlotDuration } from "./slot-utils";
 export const timestampInherent = async (chain: Chain, parentBlock: Block) => {
   const now = await getNextTimestamp(chain, parentBlock);
 
-  const callData = getCallData(parentBlock, "Timestamp", "set", {
+  const callData = await getCallData(parentBlock, "Timestamp", "set", {
     now,
   });
   return callData && unsignedExtrinsic(callData);

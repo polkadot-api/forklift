@@ -2,6 +2,8 @@ import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
+  filter,
+  firstValueFrom,
   map,
   pairwise,
   Subject,
@@ -62,7 +64,9 @@ export interface Chain {
   getStorageDiff: (
     hash: HexString,
     baseHash?: HexString
-  ) => Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>;
+  ) => Promise<
+    Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
+  >;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -73,56 +77,64 @@ export interface ChainOptions {
   mockSignatureHost?: (signature: Uint8Array) => boolean;
 }
 
-export const createChain = async (
-  sourceP: Source | Promise<Source>,
+export const createChain = (
+  source: Source,
   options: Partial<ChainOptions> = {}
-): Promise<Chain> => {
-  const source = await sourceP;
+): Chain => {
   let { mockSignatureHost } = {
     ...options,
   };
 
-  // Fetch the runtime code from the source
-  console.log("Loading code");
-  const code = (await file(cacheFile).exists())
-    ? await file(cacheFile).bytes()
-    : await source.getStorage(CODE_KEY);
-
-  if (!code) {
-    throw new Error("No runtime code found at source block");
-  }
-  file(cacheFile).write(code);
-  console.log("Code loaded, getting runtime");
-  const initialRuntime = await getRuntimeVersion(code);
-  console.log("Runtime loaded");
-
-  const storageRoot = insertValue(
-    createRoot(),
-    Binary.fromHex(CODE_KEY),
-    CODE_KEY.length - 2,
-    code
-  );
+  const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
+  const newBlocks$ = new Subject<HexString>();
+  const bestSrc$ = new BehaviorSubject<HexString | null>(null);
+  const best$ = bestSrc$.pipe(filter((v) => v != null));
+  const finalizedSrc$ = new BehaviorSubject<HexString | null>(null);
+  const finalized$ = bestSrc$.pipe(filter((v) => v != null));
 
   // Create the initial block from the source
-  const initialBlock: Block = {
-    hash: source.blockHash,
-    parent:
-      "0x0000000000000000000000000000000000000000000000000000000000000000",
-    height: source.header.number,
-    header: source.header,
-    body: source.body,
-    code,
-    storageRoot,
-    runtime: initialRuntime,
-    children: [],
-  };
+  const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
+    console.log("Loading code");
+    const code = (await file(cacheFile).exists())
+      ? await file(cacheFile).bytes()
+      : await source.getStorage(CODE_KEY);
 
-  const blocks$ = new BehaviorSubject<Record<HexString, Block>>({
-    [source.blockHash]: initialBlock,
+    if (!code) {
+      throw new Error("No runtime code found at source block");
+    }
+    file(cacheFile).write(code);
+    console.log("Code loaded, getting runtime");
+    const initialRuntime = await getRuntimeVersion(code);
+    console.log("Runtime loaded");
+
+    const result: Block = {
+      hash: block.blockHash,
+      parent:
+        "0x0000000000000000000000000000000000000000000000000000000000000000",
+      height: block.header.number,
+      header: block.header,
+      body: block.body,
+      code,
+      storageRoot: insertValue(
+        createRoot(),
+        Binary.fromHex(CODE_KEY),
+        CODE_KEY.length - 2,
+        code
+      ),
+      runtime: initialRuntime,
+      children: [],
+    };
+
+    blocks$.next({
+      [result.hash]: result,
+    });
+    setBlockMeta(chain, result);
+
+    bestSrc$.next(result.hash);
+    finalizedSrc$.next(result.hash);
+
+    return result;
   });
-  const newBlocks$ = new Subject<HexString>();
-  const best$ = new BehaviorSubject<HexString>(source.blockHash);
-  const finalized$ = new BehaviorSubject<HexString>(source.blockHash);
 
   const getBlock = (hash: HexString) => blocks$.getValue()[hash]!;
   const assertBlock = (hash: HexString) => {
@@ -142,7 +154,7 @@ export const createChain = async (
     return block.hash === parent.hash;
   };
   const assertFinalizedDescendant = (hash: HexString) => {
-    if (!isDescendant(finalized$.getValue(), hash)) {
+    if (!isDescendant(finalizedSrc$.getValue()!, hash)) {
       throw new Error(`Block is not a descendant of finalized`);
     }
   };
@@ -151,17 +163,17 @@ export const createChain = async (
     assertBlock(hash);
     assertFinalizedDescendant(hash);
 
-    best$.next(hash);
+    bestSrc$.next(hash);
   };
 
   const changeFinalized = (hash: HexString) => {
     assertBlock(hash);
     assertFinalizedDescendant(hash);
 
-    if (!isDescendant(hash, best$.getValue())) {
-      best$.next(hash);
+    if (!isDescendant(hash, bestSrc$.getValue()!)) {
+      bestSrc$.next(hash);
     }
-    finalized$.next(hash);
+    finalizedSrc$.next(hash);
   };
 
   const setStorage = (
@@ -192,6 +204,8 @@ export const createChain = async (
     hash: HexString,
     key: HexString
   ): Promise<StorageNode> => {
+    const initialBlock = await asyncInitialBlock;
+
     const block = assertBlock(hash);
     const binKey = Binary.fromHex(key);
     const node =
@@ -218,6 +232,7 @@ export const createChain = async (
     hash: HexString,
     keys: HexString[]
   ): Promise<StorageNode[]> => {
+    const initialBlock = await asyncInitialBlock;
     const block = assertBlock(hash);
 
     const keysIndexed = keys.map((key, idx) => ({ key, idx }));
@@ -267,6 +282,7 @@ export const createChain = async (
     hash: HexString,
     prefix: HexString
   ): Promise<Record<HexString, StorageNode>> => {
+    const initialBlock = await asyncInitialBlock;
     const block = assertBlock(hash);
     const binPrefix = Binary.fromHex(prefix);
 
@@ -330,7 +346,7 @@ export const createChain = async (
     };
   };
 
-  const getStorageDiff = (hash: HexString, baseHash?: HexString) => {
+  const getStorageDiff = async (hash: HexString, baseHash?: HexString) => {
     const target = getBlock(hash);
     if (!target) {
       throw new Error(`Block not found`);
@@ -342,7 +358,7 @@ export const createChain = async (
     }
     const diff = getDiff(
       base.storageRoot,
-      initialBlock.storageRoot,
+      (await asyncInitialBlock).storageRoot,
       target.storageRoot
     );
     const prevs = Object.fromEntries(
@@ -367,19 +383,17 @@ export const createChain = async (
   };
 
   const newBlock = async (opts?: Partial<NewBlockOptions>): Promise<Block> => {
-    // TODO await blockMetaSet... of parent!
-    await blockMetaSet;
-
     const {
       type = "fork",
       dmp = [],
       hrmp = [],
-      parent = best$.getValue(),
       storage = {},
       transactions = [],
       ump = {},
       unsafeBlockHeight,
     } = opts ?? {};
+
+    const parent = opts?.parent ?? (await firstValueFrom(best$));
 
     assertBlock(parent);
     assertFinalizedDescendant(parent);
@@ -411,10 +425,10 @@ export const createChain = async (
 
     // Update best/finalized based on type
     if (type === "best") {
-      best$.next(block.hash);
+      bestSrc$.next(block.hash);
     } else if (type === "finalized") {
-      best$.next(block.hash);
-      finalized$.next(block.hash);
+      bestSrc$.next(block.hash);
+      finalizedSrc$.next(block.hash);
     }
 
     return block;
@@ -423,8 +437,8 @@ export const createChain = async (
   const chain: Chain = {
     blocks$: blocks$.asObservable(),
     newBlocks$: newBlocks$.asObservable(),
-    best$: best$.asObservable(),
-    finalized$: finalized$.asObservable(),
+    best$: best$,
+    finalized$: finalized$,
     getBlock,
     newBlock,
     changeBest,
@@ -435,8 +449,6 @@ export const createChain = async (
     getStorageDescendants,
     getStorageDiff,
   };
-
-  const blockMetaSet = setBlockMeta(chain, initialBlock);
 
   return chain;
 };

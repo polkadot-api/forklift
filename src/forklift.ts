@@ -1,10 +1,10 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
+import { combineLatest, firstValueFrom } from "rxjs";
 import { createChain, type NewBlockOptions } from "./chain";
 import { createServer } from "./serve";
-import { createGenesisSource, createRemoteSource } from "./source";
+import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
-import { combineLatest, firstValueFrom } from "rxjs";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -32,7 +32,7 @@ export type ForkliftSource = Enum<{
     url: string | string[];
     atBlock?: number | string;
   };
-  genesis: Record<string, string>;
+  // genesis: Record<string, string>;
 }>;
 
 export type DelayMode = Enum<{
@@ -56,12 +56,9 @@ export function forklift(
   sourceDef: ForkliftSource,
   opts?: Partial<ForkliftOptions>
 ): Forklift {
-  const source =
-    sourceDef.type === "remote"
-      ? createRemoteSource(sourceDef.value.url, {
-          atBlock: sourceDef.value.atBlock,
-        })
-      : createGenesisSource();
+  const source = createRemoteSource(sourceDef.value.url, {
+    atBlock: sourceDef.value.atBlock,
+  });
   let options = { ...defaultOptions, ...opts };
   const chain = createChain(source);
   const txPool = createTxPool(chain);
@@ -156,16 +153,14 @@ export function forklift(
   return {
     serve: createServer(chain, txPool),
     newBlock: (opts) => newBlock(opts),
-    changeBest: (hash) => chain.then((c) => c.changeBest(hash)),
-    changeFinalized: (hash) => {
+    changeBest: async (hash) => chain.changeBest(hash),
+    changeFinalized: async (hash) => {
       finalizeTimers.forEach(clearTimeout);
       finalizeTimers.clear();
-      return chain.then((c) => c.changeFinalized(hash));
+      return chain.changeFinalized(hash);
     },
-    setStorage: (hash, changes) =>
-      chain.then((c) => c.setStorage(hash, changes)),
-    getStorageDiff: (hash, baseHash) =>
-      chain.then((c) => c.getStorageDiff(hash, baseHash)),
+    setStorage: async (hash, changes) => chain.setStorage(hash, changes),
+    getStorageDiff: (hash, baseHash) => chain.getStorageDiff(hash, baseHash),
     changeOptions(opts) {
       // TODO I think assumptions can be broken by passing { someOption: undefined }
       options = { ...options, ...opts };
@@ -173,7 +168,7 @@ export function forklift(
     destroy() {
       txPoolSub.unsubscribe();
       txPool.destroy();
-      source.then((s) => s.disconnect());
+      source.destroy();
     },
   };
 }

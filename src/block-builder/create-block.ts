@@ -51,7 +51,7 @@ export const createBlock = async (
   if (!parent) throw new Error("Block not found");
 
   // Create header template for Core_initialize_block
-  const height = parent.height + 1;
+  const height = params.unsafeBlockHeight ?? parent.height + 1;
 
   const extrinsics = [
     await timestampInherent(chain, parent),

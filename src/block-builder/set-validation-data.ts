@@ -94,7 +94,7 @@ export const setValidationDataInherent = async (
   );
   if (!txCodec) return null;
 
-  const txDec = getExtrinsicDecoder(parentBlock);
+  const txDec = await getExtrinsicDecoder(parentBlock);
   const prevValidationDataRaw = parentBlock.body.find((raw) => {
     const ext = txDec(raw);
     return (
@@ -111,11 +111,11 @@ export const setValidationDataInherent = async (
   }
 
   // Get parachain ID from runtime constant
-  const paraId = getConstant(
+  const paraId: number = await getConstant(
     parentBlock,
     "ParachainSystem",
     "SelfParaId"
-  ) as number;
+  );
   if (paraId == null) {
     throw new Error("Could not get parachain ID");
   }
@@ -278,7 +278,7 @@ export const setValidationDataInherent = async (
     },
   };
 
-  const callData = getCallData(
+  const callData = await getCallData(
     parentBlock,
     "ParachainSystem",
     "set_validation_data",
@@ -286,6 +286,6 @@ export const setValidationDataInherent = async (
       data,
       inbound_messages_data,
     }
-  )!;
-  return unsignedExtrinsic(callData);
+  );
+  return unsignedExtrinsic(callData!);
 };

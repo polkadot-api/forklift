@@ -145,6 +145,25 @@ export const chainHead_v1_follow: RpcMethod = async (
   );
 };
 
+export const chainHead_v1_unfollow: RpcMethod = async (
+  con,
+  req: JsonRpcRequest<{
+    followSubscription: string;
+  }>,
+  { chain }
+) => {
+  const { followSubscription } = getParams(req, ["followSubscription"]);
+
+  const followSub = con.context.chainHead_v1_subs[followSubscription];
+  con.send(respond(req, null));
+
+  if (!followSub) return;
+  for (const op of Object.values(followSub.operations)) {
+    op.unsubscribe();
+  }
+  delete con.context.chainHead_v1_subs[followSubscription];
+};
+
 export const chainHead_v1_header: RpcMethod = (
   con,
   req: JsonRpcRequest<{

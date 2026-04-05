@@ -8,6 +8,7 @@ import {
   chainHead_v1_header,
   chainHead_v1_stopOperation,
   chainHead_v1_storage,
+  chainHead_v1_unfollow,
   chainHead_v1_unpin,
 } from "./rpc/chainHead_v1";
 import type { Connection, RpcMethod } from "./rpc/rpc_utils";
@@ -17,22 +18,20 @@ import {
 } from "./rpc/transaction_v1";
 import type { TxPool } from "./txPool";
 
-const methods: Record<string, RpcMethod> = {
+export const methods: Record<string, RpcMethod> = {
   chainHead_v1_body,
   chainHead_v1_call,
   chainHead_v1_follow,
   chainHead_v1_header,
   chainHead_v1_stopOperation,
   chainHead_v1_storage,
+  chainHead_v1_unfollow,
   chainHead_v1_unpin,
   transaction_v1_broadcast,
   transaction_v1_stop,
 };
 
-export const createServer = (
-  chain: Promise<Chain>,
-  txPool: TxPool
-): JsonRpcProvider => {
+export const createServer = (chain: Chain, txPool: TxPool): JsonRpcProvider => {
   return (send) => {
     const disconnect = new Subject<void>();
     const con: Connection = {
@@ -56,7 +55,7 @@ export const createServer = (
 
         const method = methods[req.method];
         if (method) {
-          method(con, req, { chain: await chain, txPool });
+          method(con, req, { chain, txPool });
         } else {
           console.log(req);
           send({

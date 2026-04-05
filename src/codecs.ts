@@ -19,11 +19,11 @@ import { runRuntimeCall } from "./executor";
 type DynamicBuilder = ReturnType<typeof getDynamicBuilder>;
 const blockMeta = new WeakMap<
   Block,
-  {
+  Promise<{
     metadataRaw: Uint8Array;
     lookup: MetadataLookup;
     dynamicBuilder: DynamicBuilder;
-  }
+  }>
 >();
 
 export const setBlockMeta = async (chain: Chain, block: Block) => {
@@ -33,24 +33,30 @@ export const setBlockMeta = async (chain: Chain, block: Block) => {
     return;
   }
 
-  const metadata = await runRuntimeCall({
-    chain,
-    hash: block.hash,
-    call: "Metadata_metadata_at_version",
-    params: Binary.toHex(u32.enc(15)),
-  });
-  const metadataRaw = Binary.fromHex(metadata.result);
-  const lookup = getLookupFn(unifyMetadata(decAnyMetadata(metadataRaw)));
-  const dynamicBuilder = getDynamicBuilder(lookup);
-  blockMeta.set(block, { lookup, dynamicBuilder, metadataRaw });
+  blockMeta.set(
+    block,
+    new Promise(async (resolve) => {
+      const metadata = await runRuntimeCall({
+        chain,
+        hash: block.hash,
+        call: "Metadata_metadata_at_version",
+        params: Binary.toHex(u32.enc(15)),
+      });
+      const metadataRaw = Binary.fromHex(metadata.result);
+      const lookup = getLookupFn(unifyMetadata(decAnyMetadata(metadataRaw)));
+      const dynamicBuilder = getDynamicBuilder(lookup);
+
+      resolve({ lookup, dynamicBuilder, metadataRaw });
+    })
+  );
 };
 
-export const getConstant = (
+export const getConstant = async (
   block: Block,
   palletName: string,
   entryName: string
 ) => {
-  const meta = blockMeta.get(block);
+  const meta = await blockMeta.get(block);
   if (!meta) {
     throw new Error("Block doesn't have metadata set");
   }
@@ -69,12 +75,12 @@ export const getConstant = (
   }
 };
 
-export const getStorageCodecs = (
+export const getStorageCodecs = async (
   block: Block,
   palletName: string,
   entryName: string
 ) => {
-  const meta = blockMeta.get(block);
+  const meta = await blockMeta.get(block);
   if (!meta) {
     throw new Error("Block doesn't have metadata set");
   }
@@ -86,12 +92,12 @@ export const getStorageCodecs = (
   }
 };
 
-export const getTxCodec = (
+export const getTxCodec = async (
   block: Block,
   palletName: string,
   txName: string
 ) => {
-  const meta = blockMeta.get(block);
+  const meta = await blockMeta.get(block);
   if (!meta) {
     throw new Error("Block doesn't have metadata set");
   }
@@ -103,12 +109,12 @@ export const getTxCodec = (
   }
 };
 
-export const getCallCodec = (
+export const getCallCodec = async (
   block: Block,
   palletName: string,
   apiName: string
 ) => {
-  const meta = blockMeta.get(block);
+  const meta = await blockMeta.get(block);
   if (!meta) {
     throw new Error("Block doesn't have metadata set");
   }
@@ -120,13 +126,13 @@ export const getCallCodec = (
   }
 };
 
-export const getCallData = (
+export const getCallData = async (
   block: Block,
   palletName: string,
   txName: string,
   params: any
 ) => {
-  const tx = getTxCodec(block, palletName, txName);
+  const tx = await getTxCodec(block, palletName, txName);
   if (!tx) return null;
 
   try {
@@ -139,8 +145,8 @@ export const getCallData = (
   }
 };
 
-export const getExtrinsicDecoder = (block: Block) => {
-  const meta = blockMeta.get(block);
+export const getExtrinsicDecoder = async (block: Block) => {
+  const meta = await blockMeta.get(block);
   if (!meta) {
     throw new Error("Block doesn't have metadata set");
   }

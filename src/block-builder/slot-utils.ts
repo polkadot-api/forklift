@@ -5,17 +5,17 @@ import { runRuntimeCall } from "../executor";
 import type { Block } from "./create-block";
 
 export const getSlotDuration = async (chain: Chain, block: Block) => {
-  const babe = getConstant(block, "Babe", "ExpectedBlockTime");
+  const babe = await getConstant(block, "Babe", "ExpectedBlockTime");
   if (babe) return BigInt(babe);
 
-  const async = getConstant(block, "AsyncBacking", "ExpectedBlockTime");
+  const async = await getConstant(block, "AsyncBacking", "ExpectedBlockTime");
   if (async) return BigInt(async);
 
   return getAuraSlotDuration(chain, block);
 };
 
 export const getCurrentTimestamp = async (chain: Chain, block: Block) => {
-  const codecs = getStorageCodecs(block, "Timestamp", "Now");
+  const codecs = await getStorageCodecs(block, "Timestamp", "Now");
   if (!codecs) {
     return BigInt(Date.now());
   }
