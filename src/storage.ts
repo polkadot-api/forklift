@@ -156,6 +156,13 @@ export const getNode = (
   offset = 0
 ): StorageNode | null => {
   // if (offset === 0) console.log("getNode", Binary.toHex(key), nibbles);
+  if (
+    offset === 0 &&
+    Binary.toHex(key) ===
+      "0x26aa394eea5630e07c48ae0c9558cef734abf5cb34d6244378cddbf18e849d96"
+  ) {
+    console.log("Block.Weight requested");
+  }
 
   if (offset === nibbles) return root;
   const nibble = getNibble(key, offset);
@@ -287,6 +294,7 @@ export const forEachDescendant = (
   cb: (node: StorageNode) => void
 ) => {
   root.children.forEach((child) => {
+    if (!child) return;
     cb(child);
     forEachDescendant(child, cb);
   });

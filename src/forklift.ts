@@ -43,6 +43,7 @@ export type DelayMode = Enum<{
 export interface ForkliftOptions {
   buildBlockMode: DelayMode;
   finalizeMode: DelayMode;
+  disableOnIdle?: boolean;
   mockSignatureHost?: (signature: Uint8Array) => boolean;
 }
 
@@ -82,15 +83,14 @@ export function forklift(
     buildBlockQueue = new Promise<void>(async (res) => (resolve = res));
 
     try {
-      const c = await chain;
       const type =
         opts?.type ||
         (options.finalizeMode.type === "timer" &&
         options.finalizeMode.value === 0
           ? "finalized"
           : undefined);
-      const parent = opts?.parent ?? (await firstValueFrom(c.best$));
-      const parentBlock = c.getBlock(parent)!;
+      const parent = opts?.parent ?? (await firstValueFrom(chain.best$));
+      const parentBlock = chain.getBlock(parent)!;
 
       const transactions =
         opts?.transactions ?? (await txPool.getTxsForBlock(parentBlock));
@@ -101,21 +101,27 @@ export function forklift(
         );
         return parent;
       }
-      const block = await c.newBlock({ ...opts, type, parent, transactions });
+      const block = await chain.newBlock({
+        ...opts,
+        type,
+        parent,
+        transactions,
+        disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle,
+      });
 
       if (type == null) {
         // best changes immediately if it became higher
         const [best, blocks] = await firstValueFrom(
-          combineLatest([c.best$, c.blocks$])
+          combineLatest([chain.best$, chain.blocks$])
         );
         if (block.height > blocks[best]!.height) {
-          c.changeBest(block.hash);
+          chain.changeBest(block.hash);
         }
 
         if (options.finalizeMode.type === "timer") {
           const timer = setTimeout(() => {
             try {
-              c.changeFinalized(block.hash);
+              chain.changeFinalized(block.hash);
               // in cases of competing forks it can fail
             } catch {}
             finalizeTimers.delete(timer);

@@ -15,6 +15,7 @@ import {
 import { timestampInherent } from "./timestamp";
 import { setValidationDataInherent } from "./set-validation-data";
 import { getCurrentSlot } from "./slot-utils";
+import { getConstant, getStorageCodecs } from "../codecs";
 
 export interface CreateBlockParams {
   parent: HexString;
@@ -24,6 +25,7 @@ export interface CreateBlockParams {
   hrmp: Record<number, Uint8Array[]>;
   ump: Record<number, Uint8Array[]>;
   storage: Record<HexString, Uint8Array | null>;
+  disableOnIdle: boolean;
 }
 
 export interface Block {
@@ -59,7 +61,13 @@ export const createBlock = async (
     ...params.transactions,
   ].filter((v) => v !== null);
 
-  const result = await buildBlock(chain, height, parent, extrinsics);
+  const result = await buildBlock(
+    chain,
+    height,
+    parent,
+    extrinsics,
+    params.disableOnIdle
+  );
 
   // Decode the final header from runtime
   const encodedFinalHeader = Binary.fromHex(result.header);
@@ -126,7 +134,8 @@ const buildBlock = async (
   chain: Chain,
   height: number,
   parent: Block,
-  extrinsics: Uint8Array[]
+  extrinsics: Uint8Array[],
+  disableIdleHook?: boolean
 ) => {
   const parentHash = parent.hash;
   const digests = await buildNextDigests(chain, parent);
@@ -179,6 +188,43 @@ const buildBlock = async (
   }
 
   console.log("finalize block");
+  let originalWeight:
+    | {
+        key: HexString;
+        value: HexString;
+      }
+    | undefined;
+
+  if (disableIdleHook) {
+    // on_idle hook only triggers if either:
+    //  - no migrations are happenning
+    //  - no remaining block weight
+    // Here it mocks blockWeight to maxWeight before finalizing to disable idle hook
+    // which performs tasks like rebagging that slow down block production, since
+    // it performs serial storage requests.
+    try {
+      const blockWeights = await getConstant(parent, "System", "BlockWeights");
+      const blockWeightCodecs = await getStorageCodecs(
+        parent,
+        "System",
+        "BlockWeight"
+      );
+      if (!blockWeightCodecs) throw null;
+      const key = blockWeightCodecs.keys.enc();
+      const value = blockWeightCodecs.value.enc({
+        normal: blockWeights.max_block,
+        operational: blockWeights.max_block,
+        mandatory: blockWeights.max_block,
+      });
+      originalWeight = storageOverrides[key]
+        ? {
+            key,
+            value: storageOverrides[key],
+          }
+        : undefined;
+      storageOverrides[key] = Binary.toHex(value);
+    } catch {}
+  }
   const finalizeResponse = await runRuntimeCall({
     chain,
     hash: parentHash,
@@ -186,6 +232,9 @@ const buildBlock = async (
     params: "0x",
     storageOverrides,
   });
+  if (originalWeight) {
+    storageOverrides[originalWeight.key] = originalWeight.value;
+  }
 
   // Apply finalize storage changes
   storageOverrides = {

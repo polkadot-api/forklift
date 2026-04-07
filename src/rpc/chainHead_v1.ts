@@ -24,6 +24,8 @@ import {
   type RpcMethod,
 } from "./rpc_utils";
 
+// TODO query MultiBlockMigrations.Cursor: First argument to DataView constructor must be an ArrayBuffer
+
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
   method: "chainHead_v1_followEvent",
@@ -256,10 +258,12 @@ export const chainHead_v1_storage: RpcMethod = (
 
   // TODO pagination
   const nodeQueries$ = from(
-    chain.getStorageBatch(
-      hash,
-      nodeQueries.map((it) => it.key)
-    )
+    nodeQueries.length
+      ? chain.getStorageBatch(
+          hash,
+          nodeQueries.map((it) => it.key)
+        )
+      : []
   ).pipe(
     map((nodes) =>
       nodes.flatMap((node, i): Array<StorageItem> => {
@@ -277,13 +281,34 @@ export const chainHead_v1_storage: RpcMethod = (
     )
   );
 
-  // TODO descendantQueries
   const descendantQueries = items.filter(
     (it) => it.type === "descendantsHashes" || it.type === "descendantsValues"
   );
+  const descendantQueries$ = descendantQueries.map((query) =>
+    from(chain.getStorageDescendants(hash, query.key)).pipe(
+      map(
+        (nodes): Array<StorageItem> =>
+          Object.entries(nodes)
+            .map(([key, node]) =>
+              query.type === "hash"
+                ? {
+                    key,
+                    hash: Binary.toHex(node.hash),
+                  }
+                : node.value
+                ? {
+                    key,
+                    value: Binary.toHex(node.value),
+                  }
+                : null
+            )
+            .filter((v) => v != null)
+      )
+    )
+  );
 
   subscription.add(
-    merge(nodeQueries$).subscribe({
+    merge(nodeQueries$, ...descendantQueries$).subscribe({
       next: (items) =>
         con.send(
           followEvent(followSubscription, {

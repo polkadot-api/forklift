@@ -73,18 +73,7 @@ const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
 const cacheFile = "code.bin";
 
-export interface ChainOptions {
-  mockSignatureHost?: (signature: Uint8Array) => boolean;
-}
-
-export const createChain = (
-  source: Source,
-  options: Partial<ChainOptions> = {}
-): Chain => {
-  let { mockSignatureHost } = {
-    ...options,
-  };
-
+export const createChain = (source: Source): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -391,6 +380,7 @@ export const createChain = (
       transactions = [],
       ump = {},
       unsafeBlockHeight,
+      disableOnIdle = false,
     } = opts ?? {};
 
     const parent = opts?.parent ?? (await firstValueFrom(best$));
@@ -406,6 +396,7 @@ export const createChain = (
       transactions,
       ump,
       unsafeBlockHeight,
+      disableOnIdle,
     });
 
     // If the finalized has changed while we were building the block and this one

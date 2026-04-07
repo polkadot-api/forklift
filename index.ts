@@ -1,15 +1,17 @@
-import { AccountId, Binary, createClient } from "polkadot-api";
-import { forklift } from "./src/forklift";
-import { aliceSigner } from "./signer";
 import type { JsonRpcConnection } from "@polkadot-api/substrate-client";
-import { errorResponse } from "./src/rpc/rpc_utils";
+import { forklift } from "./src/forklift";
 
-const fork = forklift({
-  type: "remote",
-  value: {
-    url: "wss://sys.ibp.network/asset-hub-paseo",
+const fork = forklift(
+  {
+    type: "remote",
+    value: {
+      url: "wss://sys.ibp.network/asset-hub-paseo",
+    },
   },
-});
+  {
+    disableOnIdle: true,
+  }
+);
 
 const server = Bun.serve({
   fetch(req, server) {
