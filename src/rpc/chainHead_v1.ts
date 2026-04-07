@@ -11,6 +11,8 @@ import {
   from,
   map,
   merge,
+  pairwise,
+  startWith,
   Subscription,
   withLatestFrom,
 } from "rxjs";
@@ -55,11 +57,12 @@ export const chainHead_v1_follow: RpcMethod = async (
   const { withRuntime } = getParams(req, ["withRuntime"]);
 
   const subId = getUuid();
-  const ctx = {
-    pinnedBlocks: new Set<string>(),
-    operations: {},
-  };
-  con.context.chainHead_v1_subs[subId] = ctx;
+  const ctx: (typeof con.context.chainHead_v1_subs)[string] =
+    (con.context.chainHead_v1_subs[subId] = {
+      pinnedBlocks: new Set<string>(),
+      operations: {},
+      subscription: new Subscription(),
+    });
   con.send(respond(req, subId));
 
   const [finalized, blocks] = await firstValueFrom(
@@ -107,15 +110,33 @@ export const chainHead_v1_follow: RpcMethod = async (
   };
   sendChildren(finalized);
 
-  const subscription = new Subscription();
-  subscription.add(con.disconnect$.subscribe(() => subscription.unsubscribe()));
+  ctx.subscription.add(
+    con.disconnect$.subscribe(() => ctx.subscription.unsubscribe())
+  );
 
-  subscription.add(
+  ctx.subscription.add(
     chain.newBlocks$
-      .pipe(withLatestFrom(chain.blocks$))
-      .subscribe(([blockHash, blocks]) => {
-        const block = blocks[blockHash]!;
-        ctx.pinnedBlocks.add(blockHash);
+      .pipe(startWith(null), pairwise(), withLatestFrom(chain.blocks$))
+      .subscribe(([[prevHash, blockHash], blocks]) => {
+        const block = blocks[blockHash!]!;
+        if (prevHash) {
+          const prevBlock = blocks[prevHash]!;
+          if (block.header.number != prevBlock.header.number + 1) {
+            for (const op of Object.values(ctx.operations)) {
+              op.unsubscribe();
+            }
+            ctx.subscription.unsubscribe();
+            delete con.context.chainHead_v1_subs[subId];
+            con.send(
+              followEvent(subId, {
+                event: "stop",
+              })
+            );
+            return;
+          }
+        }
+
+        ctx.pinnedBlocks.add(blockHash!);
         con.send(
           followEvent(subId, {
             event: "newBlock",
@@ -127,14 +148,14 @@ export const chainHead_v1_follow: RpcMethod = async (
         );
       })
   );
-  subscription.add(
+  ctx.subscription.add(
     chain.best$.subscribe((bestBlockHash) => {
       con.send(
         followEvent(subId, { event: "bestBlockChanged", bestBlockHash })
       );
     })
   );
-  subscription.add(
+  ctx.subscription.add(
     finalizedAndPruned$(chain).subscribe(({ finalized, pruned }) => {
       con.send(
         followEvent(subId, {
@@ -151,8 +172,7 @@ export const chainHead_v1_unfollow: RpcMethod = async (
   con,
   req: JsonRpcRequest<{
     followSubscription: string;
-  }>,
-  { chain }
+  }>
 ) => {
   const { followSubscription } = getParams(req, ["followSubscription"]);
 
@@ -163,6 +183,7 @@ export const chainHead_v1_unfollow: RpcMethod = async (
   for (const op of Object.values(followSub.operations)) {
     op.unsubscribe();
   }
+  followSub.subscription.unsubscribe();
   delete con.context.chainHead_v1_subs[followSubscription];
 };
 

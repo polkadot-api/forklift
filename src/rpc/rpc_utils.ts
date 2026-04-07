@@ -19,6 +19,7 @@ export interface Connection {
       {
         pinnedBlocks: Set<string>;
         operations: Record<string, Subscription>;
+        subscription: Subscription;
       }
     >;
   };

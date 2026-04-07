@@ -1,5 +1,6 @@
 import type { JsonRpcConnection } from "@polkadot-api/substrate-client";
 import { forklift } from "./src/forklift";
+import { createClient } from "polkadot-api";
 
 const fork = forklift(
   {
@@ -12,6 +13,13 @@ const fork = forklift(
     disableOnIdle: true,
   }
 );
+
+// const client = createClient(fork.serve);
+// const finalized = await client.getFinalizedBlock();
+
+// await fork.newBlock({
+//   unsafeBlockHeight: finalized.number + 2,
+// });
 
 const server = Bun.serve({
   fetch(req, server) {

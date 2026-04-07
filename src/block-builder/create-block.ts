@@ -150,6 +150,17 @@ const buildBlock = async (
     digests,
   };
 
+  // Override height of parent to support unsafeBlockHeight
+  const systemNumberCodec = await getStorageCodecs(parent, "System", "Number");
+  let storageOverrides: Record<HexString, HexString | null> = {};
+  if (systemNumberCodec) {
+    storageOverrides = {
+      [systemNumberCodec.keys.enc()]: Binary.toHex(
+        systemNumberCodec.value.enc(height - 1)
+      ),
+    };
+  }
+
   console.log("initialise block");
   // Call Core_initialize_block
   const initResponse = await runRuntimeCall({
@@ -157,11 +168,14 @@ const buildBlock = async (
     hash: parentHash,
     call: "Core_initialize_block",
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
+    storageOverrides,
   });
 
   // Apply storage changes
-  let storageOverrides: Record<HexString, HexString | null> =
-    Object.fromEntries(initResponse.storageDiff);
+  storageOverrides = {
+    ...storageOverrides,
+    ...Object.fromEntries(initResponse.storageDiff),
+  };
 
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
