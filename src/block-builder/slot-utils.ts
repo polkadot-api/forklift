@@ -1,4 +1,15 @@
-import { u64 } from "@polkadot-api/substrate-bindings";
+import {
+  _void,
+  Bytes,
+  compactNumber,
+  Hex,
+  Struct,
+  Tuple,
+  u64,
+  Variant,
+  Vector,
+  type CodecType,
+} from "@polkadot-api/substrate-bindings";
 import type { Chain } from "../chain";
 import { getConstant, getStorageCodecs } from "../codecs";
 import { runRuntimeCall } from "../executor";
@@ -17,7 +28,7 @@ export const getSlotDuration = async (chain: Chain, block: Block) => {
 export const getCurrentTimestamp = async (chain: Chain, block: Block) => {
   const codecs = await getStorageCodecs(block, "Timestamp", "Now");
   if (!codecs) {
-    return BigInt(Date.now());
+    throw new Error("No Timestamp.Now");
   }
 
   const node = await chain.getStorage(block.hash, codecs.keys.enc());
@@ -54,3 +65,25 @@ const getAuraSlotDuration = async (chain: Chain, block: Block) => {
   console.error("Couldn't get aura slot duration");
   return 12_000n;
 };
+
+const digestVal = Tuple(Hex(4), Hex());
+
+const digest = Variant(
+  {
+    Other: Bytes(),
+    Consensus: digestVal,
+    Seal: digestVal,
+    PreRuntime: digestVal,
+    RuntimeEnvironmentUpdated: _void,
+  },
+  [0, 4, 5, 6, 8]
+);
+
+export const runtimeBlockHeader = Struct({
+  parent_hash: Hex(32),
+  number: compactNumber,
+  state_root: Hex(32),
+  extrinsics_root: Hex(32),
+  digest: Vector(digest),
+});
+export type RuntimeBlockHeader = CodecType<typeof runtimeBlockHeader>;

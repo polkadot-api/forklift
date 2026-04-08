@@ -1,20 +1,14 @@
 import { create_proof, decode_proof } from "@acala-network/chopsticks-executor";
 import {
   Blake2256,
-  Twox64Concat,
   Twox128,
+  Twox64Concat,
   blockHeader,
   compact,
-  u64,
   u32,
+  u64,
 } from "@polkadot-api/substrate-bindings";
-import {
-  Binary,
-  Enum,
-  type BlockHeader,
-  type HexString,
-  type SizedHex,
-} from "polkadot-api";
+import { Binary, type HexString } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Chain } from "../chain";
 import {
@@ -25,7 +19,12 @@ import {
   unsignedExtrinsic,
 } from "../codecs";
 import type { Block } from "./create-block";
-import { getCurrentSlot, getSlotDuration } from "./slot-utils";
+import {
+  getCurrentSlot,
+  getSlotDuration,
+  runtimeBlockHeader,
+  type RuntimeBlockHeader,
+} from "./slot-utils";
 
 const textEncoder = new TextEncoder();
 const RELAY_CHAIN_SLOT_DURATION_MILLIS = 6_000n;
@@ -68,25 +67,17 @@ const encodeHeadData = (header: Uint8Array): Uint8Array => {
   return mergeUint8([compact.enc(header.length), header]);
 };
 
-type Digest = Enum<{
-  Other: Uint8Array<ArrayBufferLike>;
-  Consensus: [SizedHex<4>, Uint8Array];
-  Seal: [SizedHex<4>, Uint8Array];
-  PreRuntime: [SizedHex<4>, Uint8Array];
-  RuntimeEnvironmentUpdated: undefined;
-}>;
-type RelayParentDescendant = {
-  parent_hash: SizedHex<32>;
-  number: number;
-  state_root: SizedHex<32>;
-  extrinsics_root: SizedHex<32>;
-  digest: Digest[];
-};
-
 export const setValidationDataInherent = async (
   chain: Chain,
   parentBlock: Block
 ) => {
+  if (
+    !parentBlock.header.digests.some(
+      (d) => d.type === "preRuntime" && d.value.engine === "aura"
+    )
+  )
+    return null;
+
   const txCodec = getTxCodec(
     parentBlock,
     "ParachainSystem",
@@ -188,13 +179,13 @@ export const setValidationDataInherent = async (
   );
 
   // Keep relay_parent_descendants aligned with the new relay parent number.
-  const originalDescendants: Array<RelayParentDescendant> =
+  const originalDescendants: Array<RuntimeBlockHeader> =
     prevValidationData.relay_parent_descendants ?? [];
 
   // Update relay_parent_descendants:
   // 1. First descendant's state_root must match our new relay_parent_storage_root
   // 2. Each subsequent descendant's parentHash must be the hash of the previous header
-  const updatedDescendants: Array<RelayParentDescendant> = [];
+  const updatedDescendants: Array<RuntimeBlockHeader> = [];
   let lastHeaderHash: HexString | undefined;
   let nextDescNumber =
     Number(prevValidationData.validation_data.relay_parent_number) +
@@ -217,40 +208,7 @@ export const setValidationDataInherent = async (
     updatedDescendants.push(updatedDesc);
     nextDescNumber += 1;
 
-    // Compute the hash of this header for the next iteration
-    // Convert to the format expected by blockHeader.enc (camelCase)
-    const convertedDigests = desc.digest.map(
-      (d): BlockHeader["digests"][number] => {
-        const [engineHex, binPayload] = Array.isArray(d.value)
-          ? d.value
-          : ["", new Uint8Array()];
-        const engine = Binary.toText(Binary.fromHex(engineHex));
-        const payload = Binary.toHex(binPayload);
-
-        switch (d.type) {
-          case "Consensus":
-            return Enum("consensus", { engine, payload });
-          case "Other":
-            return Enum("other", d.value);
-          case "PreRuntime":
-            return Enum("preRuntime", { engine, payload });
-          case "RuntimeEnvironmentUpdated":
-            return Enum("runtimeUpdated", undefined);
-          case "Seal":
-            return Enum("seal", { engine, payload });
-        }
-      }
-    );
-
-    const headerForHash = {
-      parentHash: updatedDesc.parent_hash,
-      number: updatedDesc.number,
-      stateRoot: updatedDesc.state_root,
-      extrinsicRoot: updatedDesc.extrinsics_root,
-      digests: convertedDigests,
-    };
-
-    const encoded = blockHeader.enc(headerForHash);
+    const encoded = runtimeBlockHeader.enc(desc);
     lastHeaderHash = Binary.toHex(Blake2256(encoded));
   }
 

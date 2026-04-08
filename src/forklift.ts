@@ -2,6 +2,7 @@ import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
 import { combineLatest, firstValueFrom } from "rxjs";
 import { createChain, type NewBlockOptions } from "./chain";
+import { runPrequeries } from "./prequeries";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
@@ -63,6 +64,8 @@ export function forklift(
   let options = { ...defaultOptions, ...opts };
   const chain = createChain(source);
   const txPool = createTxPool(chain);
+
+  runPrequeries(chain);
 
   let buildBlockQueue: Promise<void> | null = null;
   let blocksEnqueued = 0;

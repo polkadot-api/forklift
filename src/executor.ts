@@ -48,7 +48,7 @@ export const runRuntimeCall = async ({
   mockSignatureHost = false,
 }: ExecutorParams): Promise<RuntimeCallResult> => {
   // Get the runtime code for the target block
-  const code = await chain.getBlock(hash)?.code;
+  const code = chain.getBlock(hash)?.code;
   if (!code) {
     throw new Error(`No runtime code found at block ${hash}`);
   }
@@ -100,6 +100,8 @@ const createJsCallback = (
 ): JsCallback => {
   return {
     async getStorage(key: HexString): Promise<string | undefined> {
+      // console.log("get", key);
+
       // Check overlay first
       if (key in overlay) {
         return overlay[key] ?? undefined;

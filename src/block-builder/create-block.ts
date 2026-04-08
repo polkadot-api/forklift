@@ -1,4 +1,13 @@
-import { Blake2256, blockHeader, u64 } from "@polkadot-api/substrate-bindings";
+import {
+  _void,
+  Blake2256,
+  blockHeader,
+  Bytes,
+  Struct,
+  u32,
+  u64,
+  Variant,
+} from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
 import {
@@ -14,6 +23,7 @@ import {
 } from "../storage";
 import { timestampInherent } from "./timestamp";
 import { setValidationDataInherent } from "./set-validation-data";
+import { paraInherentEnterInherent } from "./para-enter";
 import { getCurrentSlot } from "./slot-utils";
 import { getConstant, getStorageCodecs } from "../codecs";
 
@@ -58,6 +68,7 @@ export const createBlock = async (
   const extrinsics = [
     await timestampInherent(chain, parent),
     await setValidationDataInherent(chain, parent),
+    await paraInherentEnterInherent(chain, parent),
     ...params.transactions,
   ].filter((v) => v !== null);
 
@@ -177,6 +188,16 @@ const buildBlock = async (
     ...Object.fromEntries(initResponse.storageDiff),
   };
 
+  const paraInherentIncludedCodec = await getStorageCodecs(
+    parent,
+    "ParaInherent",
+    "Included"
+  );
+  // TODO for some reason Included is not being set when calling the inherent. Hack it for now
+  if (paraInherentIncludedCodec) {
+    storageOverrides[paraInherentIncludedCodec.keys.enc()] = "0x01";
+  }
+
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
@@ -274,11 +295,48 @@ const buildNextDigests = async (chain: Chain, parent: Block) => {
 
   return parent.header.digests.map((digest) => {
     if (digest.type !== "preRuntime") return digest;
-    if (digest.value.engine !== "aura") return digest;
+    if (digest.value.engine === "aura") {
+      return Enum("preRuntime", {
+        engine: "aura",
+        payload: nextSlotPayload,
+      });
+    }
+    if (digest.value.engine === "BABE" || digest.value.engine === "babe") {
+      const preDigest = BabePreDigest.dec(digest.value.payload);
+      if (preDigest.type === "Unknown") return digest;
 
-    return Enum("preRuntime", {
-      engine: "aura",
-      payload: nextSlotPayload,
-    });
+      return Enum("preRuntime", {
+        engine: digest.value.engine,
+        payload: Binary.toHex(
+          BabePreDigest.enc({
+            ...preDigest,
+            value: {
+              ...(preDigest.value as any),
+              slot: nextSlot,
+            },
+          })
+        ),
+      });
+    }
+
+    return digest;
   });
 };
+
+const DigestWithVRF = Struct({
+  authority_index: u32,
+  slot: u64,
+  vrf_signature: Struct({
+    pre_output: Bytes(32),
+    proof: Bytes(64),
+  }),
+});
+const BabePreDigest = Variant({
+  Unknown: _void,
+  Primary: DigestWithVRF,
+  SecondaryPlain: Struct({
+    authority_index: u32,
+    slot: u64,
+  }),
+  SecondaryVRF: DigestWithVRF,
+});
