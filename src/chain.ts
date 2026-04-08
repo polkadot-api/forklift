@@ -25,6 +25,7 @@ import {
   getDescendantNodes,
   getDiff,
   getNode,
+  getSoftDeletedDescendantKeys,
   insertValue,
   type StorageNode,
 } from "./storage";
@@ -79,7 +80,7 @@ export const createChain = (source: Source): Chain => {
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
   const best$ = bestSrc$.pipe(filter((v) => v != null));
   const finalizedSrc$ = new BehaviorSubject<HexString | null>(null);
-  const finalized$ = bestSrc$.pipe(filter((v) => v != null));
+  const finalized$ = finalizedSrc$.pipe(filter((v) => v != null));
 
   // Create the initial block from the source
   const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
@@ -300,7 +301,7 @@ export const createChain = (source: Source): Chain => {
     );
     if (!rootNode?.exhaustive) {
       const sourceDescendants = await source.getStorageDescendants(prefix);
-      if (!sourceDescendants.length)
+      if (!Object.keys(sourceDescendants).length)
         initialBlock.storageRoot = insertValue(
           initialBlock.storageRoot,
           binPrefix,
@@ -329,8 +330,28 @@ export const createChain = (source: Source): Chain => {
     // There's a temptation to propagate this exhaustive to the blockNode
     // but then it could mess up storage diffs.
 
+    // Soft-deleted keys in blockNode must explicitly exclude entries from rootNode.
+    // getDescendantNodes skips null-valued nodes, so without this the old rootNode
+    // value would leak through for deleted keys.
+    const deletedKeys = blockNode
+      ? new Set(
+          getSoftDeletedDescendantKeys(
+            blockNode,
+            binPrefix,
+            binPrefix.length * 2
+          ).map(Binary.toHex)
+        )
+      : null;
+
+    const rootDescendants = getNodeDescendants(rootNode);
     return {
-      ...getNodeDescendants(rootNode),
+      ...(deletedKeys
+        ? Object.fromEntries(
+            Object.entries(rootDescendants).filter(
+              ([key]) => !deletedKeys.has(key)
+            )
+          )
+        : rootDescendants),
       ...getNodeDescendants(blockNode),
     };
   };

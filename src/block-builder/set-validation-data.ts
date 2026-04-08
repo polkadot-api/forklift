@@ -208,7 +208,7 @@ export const setValidationDataInherent = async (
     updatedDescendants.push(updatedDesc);
     nextDescNumber += 1;
 
-    const encoded = runtimeBlockHeader.enc(desc);
+    const encoded = runtimeBlockHeader.enc(updatedDesc);
     lastHeaderHash = Binary.toHex(Blake2256(encoded));
   }
 

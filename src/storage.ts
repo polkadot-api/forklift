@@ -289,6 +289,28 @@ export const getDescendantNodes = (
   return result;
 };
 
+export const getSoftDeletedDescendantKeys = (
+  node: StorageNode,
+  prefix: Uint8Array,
+  nibbles: number
+): Array<Uint8Array> => {
+  let result = new Array<Uint8Array>();
+  if (node.value === null) {
+    result.push(prefix);
+  }
+
+  node.children.forEach((child, i) => {
+    if (!child) return;
+
+    const childPrefix = setNibble(prefix, nibbles, i);
+    result = [
+      ...result,
+      ...getSoftDeletedDescendantKeys(child, childPrefix, nibbles + 1),
+    ];
+  });
+  return result;
+};
+
 export const forEachDescendant = (
   root: StorageNode,
   cb: (node: StorageNode) => void

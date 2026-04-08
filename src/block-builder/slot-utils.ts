@@ -66,7 +66,7 @@ const getAuraSlotDuration = async (chain: Chain, block: Block) => {
   return 12_000n;
 };
 
-const digestVal = Tuple(Hex(4), Hex());
+const digestVal = Tuple(Hex(4), Bytes());
 
 const digest = Variant(
   {

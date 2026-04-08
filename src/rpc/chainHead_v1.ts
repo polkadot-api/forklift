@@ -102,7 +102,7 @@ export const chainHead_v1_follow: RpcMethod = async (
           event: "newBlock",
           blockHash: child,
           parentBlockHash: hash,
-          newRuntime: childBlock.hasNewRuntime,
+          newRuntime: withRuntime ? childBlock.hasNewRuntime : undefined,
         })
       );
       sendChildren(child);
@@ -311,7 +311,7 @@ export const chainHead_v1_storage: RpcMethod = (
         (nodes): Array<StorageItem> =>
           Object.entries(nodes)
             .map(([key, node]) =>
-              query.type === "hash"
+              query.type === "descendantsHashes"
                 ? {
                     key,
                     hash: Binary.toHex(node.hash),

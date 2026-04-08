@@ -89,16 +89,20 @@ export const createBlock = async (
 
   // Create new storage root from parent's, applying the diff
   let newStorageRoot = parent.storageRoot;
-  for (const key in result.storageDiff) {
+  const storageChanges = {
+    ...result.storageDiff,
+    ...params.storage,
+  };
+  for (const key in storageChanges) {
     const binKey = Binary.fromHex(key as HexString);
-    const value = result.storageDiff[key];
+    const value = storageChanges[key];
 
     if (value != null) {
       newStorageRoot = insertValue(
         newStorageRoot,
         binKey,
         binKey.length * 2,
-        Binary.fromHex(value)
+        typeof value === "string" ? Binary.fromHex(value) : value
       );
     } else {
       newStorageRoot = deleteValue(newStorageRoot, binKey, binKey.length * 2);
