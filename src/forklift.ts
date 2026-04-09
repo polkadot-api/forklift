@@ -1,5 +1,6 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
-import { Enum, type HexString } from "polkadot-api";
+import { Binary, Enum, type HexString } from "polkadot-api";
+import { Blake2256, Bytes, Struct, u32 } from "@polkadot-api/substrate-bindings";
 import { combineLatest, firstValueFrom, map } from "rxjs";
 import { createChain, type Chain, type NewBlockOptions } from "./chain";
 import { runPrequeries } from "./prequeries";
@@ -7,7 +8,7 @@ import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
 import type { XcmMessages } from "./block-builder/create-block";
-import { getStorageCodecs } from "./codecs";
+import { getConstant, getExtrinsicDecoder, getStorageCodecs } from "./codecs";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -34,6 +35,18 @@ export interface Forklift {
       }>
     >;
   }>;
+  getProcessedDmp(
+    hash?: HexString
+  ): Promise<{ paraId: number; messages: XcmMessages["dmp"] } | null>;
+  applyProcessedDmp(
+    paraId: number,
+    messages: XcmMessages["dmp"],
+    hash?: HexString
+  ): Promise<void>;
+  applyProcessedDmpFrom(
+    parachain: Forklift,
+    opts?: { paraHash?: HexString; relayHash?: HexString }
+  ): Promise<void>;
 
   changeOptions: (options: Partial<ForkliftOptions>) => void;
   destroy: () => void;
@@ -177,6 +190,125 @@ export function forklift(
     }, delay);
   });
 
+  const getProcessedDmp = async (hash?: HexString) => {
+    const target = hash ?? (await firstValueFrom(chain.best$));
+    const block = chain.getBlock(target);
+    if (!block) return null;
+
+    const txDec = await getExtrinsicDecoder(block);
+    const validationExtRaw = block.body.find((raw) => {
+      const ext = txDec(raw);
+      return (
+        ext.call.type === "ParachainSystem" &&
+        ext.call.value.type === "set_validation_data"
+      );
+    });
+    if (!validationExtRaw) return null;
+
+    const validationExt = txDec(validationExtRaw);
+    const callValue = validationExt.call.value.value;
+    const messages =
+      callValue?.inbound_messages_data?.downward_messages?.full_messages ??
+      callValue?.inboundMessagesData?.downwardMessages?.fullMessages ??
+      [];
+    if (!Array.isArray(messages)) return null;
+
+    const paraId = await getConstant(block, "ParachainSystem", "SelfParaId");
+    if (paraId == null) return null;
+
+    return {
+      paraId: Number(paraId),
+      messages,
+    };
+  };
+
+  const applyProcessedDmp = async (
+    paraId: number,
+    messages: XcmMessages["dmp"],
+    hash?: HexString
+  ) => {
+    if (!messages.length) return;
+    const target = hash ?? (await firstValueFrom(chain.best$));
+    const block = chain.getBlock(target);
+    if (!block) return;
+
+    const queueCodec = await getStorageCodecs(
+      block,
+      "Dmp",
+      "DownwardMessageQueues"
+    );
+    const headsCodec = await getStorageCodecs(
+      block,
+      "Dmp",
+      "DownwardMessageQueueHeads"
+    );
+    if (!queueCodec || !headsCodec) return;
+
+    const queueKey = queueCodec.keys.enc(paraId);
+    const headsKey = headsCodec.keys.enc(paraId);
+    const [queueNode, headsNode] = await chain.getStorageBatch(block.hash, [
+      queueKey,
+      headsKey,
+    ]);
+
+    const queueDecoded = queueNode?.value
+      ? queueCodec.value.dec(queueNode.value)
+      : [];
+    if (!Array.isArray(queueDecoded)) {
+      throw new Error("Unexpected DMP queue shape");
+    }
+
+    if (queueDecoded.length < messages.length) {
+      throw new Error("DMP queue shorter than processed messages");
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+      const queued = queueDecoded[i] as XcmMessages["dmp"][number];
+      const processed = messages[i]!;
+      if (!dmpMessagesEqual(queued, processed)) {
+        throw new Error("Processed DMP messages do not match relay queue");
+      }
+    }
+
+    const remaining = queueDecoded.slice(messages.length);
+    const prevHead = headsNode?.value
+      ? headsCodec.value.dec(headsNode.value)
+      : null;
+    const prevHeadBytes = toHeadBytes(prevHead);
+
+    let nextHead = prevHeadBytes;
+    for (const message of messages) {
+      nextHead = Blake2256(
+        dmpChain.enc({
+          hash: nextHead,
+          sent_at: Number(message.sent_at),
+          msg_hash: Blake2256(Binary.toOpaque(toMsgBytes(message.msg))),
+        })
+      );
+    }
+
+    const nextHeadValue =
+      typeof prevHead === "string" ? Binary.toHex(nextHead) : nextHead;
+
+    chain.setStorage(target, {
+      [queueKey]: queueCodec.value.enc(remaining),
+      [headsKey]: headsCodec.value.enc(nextHeadValue as any),
+    });
+  };
+
+  const applyProcessedDmpFrom = async (
+    parachain: Forklift,
+    opts?: { paraHash?: HexString; relayHash?: HexString }
+  ) => {
+    const receipt = await parachain.getProcessedDmp(opts?.paraHash);
+    if (!receipt || !receipt.messages.length) return;
+    await applyProcessedDmp(
+      receipt.paraId,
+      receipt.messages,
+      opts?.relayHash
+    );
+  };
+
   return {
     serve: createServer({ source, chain, txPool, newBlock }),
     newBlock: (opts) => newBlock(opts),
@@ -197,7 +329,8 @@ export function forklift(
       txPool.destroy();
       source.destroy();
     },
-    async getXcm() {
+    getProcessedDmp,
+    getXcm: async () => {
       // TODO verify xcm messages are only from finalized block.
       const finalized = await firstValueFrom(
         chain.finalized$.pipe(map((f) => chain.getBlock(f)!))
@@ -233,5 +366,43 @@ export function forklift(
         dmp: await getDmp(),
       };
     },
+    applyProcessedDmp,
+    applyProcessedDmpFrom,
   };
 }
+
+const ZERO_HEAD = new Uint8Array(32);
+
+const dmpChain = Struct({
+  hash: Bytes(32),
+  sent_at: u32,
+  msg_hash: Bytes(32),
+});
+
+const toHeadBytes = (value: unknown): Uint8Array => {
+  if (typeof value === "string") return Binary.fromHex(value);
+  if (value instanceof Uint8Array) return value;
+  return ZERO_HEAD;
+};
+
+const toMsgBytes = (value: unknown): Uint8Array => {
+  if (value instanceof Uint8Array) return value;
+  if (typeof value === "string") return Binary.fromHex(value);
+  return new Uint8Array();
+};
+
+const dmpMessagesEqual = (
+  queued: XcmMessages["dmp"][number],
+  processed: XcmMessages["dmp"][number]
+) => {
+  if (Number(queued.sent_at) !== Number(processed.sent_at)) return false;
+  return bytesEqual(toMsgBytes(queued.msg), toMsgBytes(processed.msg));
+};
+
+const bytesEqual = (a: Uint8Array, b: Uint8Array) => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
