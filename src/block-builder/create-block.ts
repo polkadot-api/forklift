@@ -192,16 +192,6 @@ const buildBlock = async (
     ...Object.fromEntries(initResponse.storageDiff),
   };
 
-  const paraInherentIncludedCodec = await getStorageCodecs(
-    parent,
-    "ParaInherent",
-    "Included"
-  );
-  // TODO for some reason Included is not being set when calling the inherent. Hack it for now
-  if (paraInherentIncludedCodec) {
-    storageOverrides[paraInherentIncludedCodec.keys.enc()] = "0x01";
-  }
-
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
@@ -216,6 +206,8 @@ const buildBlock = async (
         mockSignatureHost: true,
       });
       body.push(extrinsic);
+
+      // console.log(Object.fromEntries(applyResponse.storageDiff));
 
       storageOverrides = {
         ...storageOverrides,

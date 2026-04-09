@@ -7,6 +7,7 @@ import type { HexString } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import {
   combineLatest,
+  filter,
   firstValueFrom,
   from,
   map,
@@ -25,8 +26,6 @@ import {
   respond,
   type RpcMethod,
 } from "./rpc_utils";
-
-// TODO query MultiBlockMigrations.Cursor: First argument to DataView constructor must be an ArrayBuffer
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -329,36 +328,38 @@ export const chainHead_v1_storage: RpcMethod = (
   );
 
   subscription.add(
-    merge(nodeQueries$, ...descendantQueries$).subscribe({
-      next: (items) =>
-        con.send(
-          followEvent(followSubscription, {
-            event: "operationStorageItems",
-            operationId: opId,
-            items,
-          })
-        ),
-      error: (e) => {
-        console.error(e);
-        con.send(
-          followEvent(followSubscription, {
-            event: "operationError",
-            operationId: opId,
-            error: e.message,
-          })
-        );
-        cleanup();
-      },
-      complete: () => {
-        con.send(
-          followEvent(followSubscription, {
-            event: "operationStorageDone",
-            operationId: opId,
-          })
-        );
-        cleanup();
-      },
-    })
+    merge(nodeQueries$, ...descendantQueries$)
+      .pipe(filter((v) => v.length > 0))
+      .subscribe({
+        next: (items) =>
+          con.send(
+            followEvent(followSubscription, {
+              event: "operationStorageItems",
+              operationId: opId,
+              items,
+            })
+          ),
+        error: (e) => {
+          console.error(e);
+          con.send(
+            followEvent(followSubscription, {
+              event: "operationError",
+              operationId: opId,
+              error: e.message,
+            })
+          );
+          cleanup();
+        },
+        complete: () => {
+          con.send(
+            followEvent(followSubscription, {
+              event: "operationStorageDone",
+              operationId: opId,
+            })
+          );
+          cleanup();
+        },
+      })
   );
 };
 

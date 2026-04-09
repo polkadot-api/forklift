@@ -1,4 +1,3 @@
-import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
@@ -72,7 +71,7 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-const cacheFile = "code.bin";
+// const cacheFile = "code.bin";
 
 export const createChain = (source: Source): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
@@ -85,14 +84,14 @@ export const createChain = (source: Source): Chain => {
   // Create the initial block from the source
   const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
     console.log("Loading code");
-    const code = (await file(cacheFile).exists())
-      ? await file(cacheFile).bytes()
-      : await source.getStorage(CODE_KEY);
+    const code =
+      // (await file(cacheFile).exists()) ? await file(cacheFile).bytes() :
+      await source.getStorage(CODE_KEY);
 
     if (!code) {
       throw new Error("No runtime code found at source block");
     }
-    file(cacheFile).write(code);
+    // file(cacheFile).write(code);
     console.log("Code loaded, getting runtime");
     const initialRuntime = await getRuntimeVersion(code);
     console.log("Runtime loaded");

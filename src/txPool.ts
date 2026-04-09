@@ -252,6 +252,6 @@ const sortValidatedTxs = (
   const sorted = result.sort((a, b) =>
     Number(b.validation.priority - a.validation.priority)
   );
-  console.log("sorted transactions", sorted);
+  // console.log("sorted transactions", sorted);
   return sorted.map((v) => v.tx);
 };
