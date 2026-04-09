@@ -72,9 +72,9 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-const cacheFile = "code.bin";
+export const createChain = (source: Source, key?: string): Chain => {
+  const cacheFile = key ? `code_${key}.bin` : null;
 
-export const createChain = (source: Source): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -85,14 +85,15 @@ export const createChain = (source: Source): Chain => {
   // Create the initial block from the source
   const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
     console.log("Loading code");
-    const code = (await file(cacheFile).exists())
-      ? await file(cacheFile).bytes()
-      : await source.getStorage(CODE_KEY);
+    const code =
+      cacheFile && (await file(cacheFile).exists())
+        ? await file(cacheFile).bytes()
+        : await source.getStorage(CODE_KEY);
 
     if (!code) {
       throw new Error("No runtime code found at source block");
     }
-    file(cacheFile).write(code);
+    cacheFile && file(cacheFile).write(code);
     console.log("Code loaded, getting runtime");
     const initialRuntime = await getRuntimeVersion(code);
     console.log("Runtime loaded");
@@ -395,11 +396,13 @@ export const createChain = (source: Source): Chain => {
   const newBlock = async (opts?: Partial<NewBlockOptions>): Promise<Block> => {
     const {
       type = "fork",
-      dmp = [],
-      hrmp = [],
+      xcm = {
+        dmp: [],
+        hrmp: {},
+        ump: {},
+      },
       storage = {},
       transactions = [],
-      ump = {},
       unsafeBlockHeight,
       disableOnIdle = false,
     } = opts ?? {};
@@ -410,12 +413,10 @@ export const createChain = (source: Source): Chain => {
     assertFinalizedDescendant(parent);
 
     const block = await createBlock(chain, {
-      dmp,
-      hrmp,
       parent,
       storage,
       transactions,
-      ump,
+      xcm,
       unsafeBlockHeight,
       disableOnIdle,
     });

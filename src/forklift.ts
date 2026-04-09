@@ -1,11 +1,13 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
-import { combineLatest, firstValueFrom } from "rxjs";
-import { createChain, type NewBlockOptions } from "./chain";
+import { combineLatest, firstValueFrom, map } from "rxjs";
+import { createChain, type Chain, type NewBlockOptions } from "./chain";
 import { runPrequeries } from "./prequeries";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
+import type { XcmMessages } from "./block-builder/create-block";
+import { getStorageCodecs } from "./codecs";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -23,6 +25,15 @@ export interface Forklift {
   ) => Promise<
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
+  getXcm(): Promise<{
+    dmp: Record<
+      number,
+      Array<{
+        sent_at: number;
+        msg: Uint8Array;
+      }>
+    >;
+  }>;
 
   changeOptions: (options: Partial<ForkliftOptions>) => void;
   destroy: () => void;
@@ -46,6 +57,8 @@ export interface ForkliftOptions {
   finalizeMode: DelayMode;
   disableOnIdle?: boolean;
   mockSignatureHost?: (signature: Uint8Array) => boolean;
+  xcmProvider?: () => Promise<XcmMessages>;
+  key?: string;
 }
 
 const defaultOptions: ForkliftOptions = {
@@ -62,7 +75,7 @@ export function forklift(
     atBlock: sourceDef.value.atBlock,
   });
   let options = { ...defaultOptions, ...opts };
-  const chain = createChain(source);
+  const chain = createChain(source, opts?.key);
   const txPool = createTxPool(chain);
 
   runPrequeries(chain);
@@ -86,6 +99,10 @@ export function forklift(
     buildBlockQueue = new Promise<void>(async (res) => (resolve = res));
 
     try {
+      const xcm = opts?.xcm
+        ? Promise.resolve(opts.xcm)
+        : options.xcmProvider?.();
+
       const type =
         opts?.type ||
         (options.finalizeMode.type === "timer" &&
@@ -110,6 +127,7 @@ export function forklift(
         parent,
         transactions,
         disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle,
+        xcm: await xcm,
       });
 
       if (type == null) {
@@ -178,6 +196,42 @@ export function forklift(
       txPoolSub.unsubscribe();
       txPool.destroy();
       source.destroy();
+    },
+    async getXcm() {
+      // TODO verify xcm messages are only from finalized block.
+      const finalized = await firstValueFrom(
+        chain.finalized$.pipe(map((f) => chain.getBlock(f)!))
+      );
+      const dmpCodec = await getStorageCodecs(
+        finalized,
+        "Dmp",
+        "DownwardMessageQueues"
+      );
+
+      const getDmp = async () => {
+        if (!dmpCodec) return {};
+
+        const entries = await chain.getStorageDescendants(
+          finalized.hash,
+          dmpCodec.keys.enc()
+        );
+
+        const tmp = Object.entries(entries)
+          .map(([key, value]) =>
+            value.value
+              ? [dmpCodec.keys.dec(key)[0], dmpCodec.value.dec(value.value)]
+              : null
+          )
+          .filter((v) => v != null);
+
+        return Object.fromEntries(tmp);
+      };
+
+      // TODO verify xcm messages are cleared out from the queue once read.
+
+      return {
+        dmp: await getDmp(),
+      };
     },
   };
 }

@@ -1,6 +1,8 @@
 import { create_proof, decode_proof } from "@acala-network/chopsticks-executor";
 import {
   Blake2256,
+  Bytes,
+  Struct,
   Twox128,
   Twox64Concat,
   blockHeader,
@@ -18,7 +20,7 @@ import {
   getTxCodec,
   unsignedExtrinsic,
 } from "../codecs";
-import type { Block } from "./create-block";
+import type { Block, XcmMessages } from "./create-block";
 import {
   getCurrentSlot,
   getSlotDuration,
@@ -53,6 +55,13 @@ const PRESERVE_PROOFS = [
   storagePrefix("Babe", "Authorities"),
 ];
 
+const DMP_QUEUE_HEADS_KEY = storagePrefix("Dmp", "DownwardMessageQueueHeads");
+
+const appendParaId = (key: HexString, paraId: number) =>
+  Binary.toHex(
+    mergeUint8([Binary.fromHex(key), Twox64Concat(u32.enc(paraId))])
+  );
+
 // Storage key prefix for Paras::Heads(paraId) on the relay chain
 const PARAS_HEADS_PREFIX = Binary.fromHex(storagePrefix("Paras", "Heads"));
 
@@ -67,9 +76,55 @@ const encodeHeadData = (header: Uint8Array): Uint8Array => {
   return mergeUint8([compact.enc(header.length), header]);
 };
 
+const inferSenderKey = (example: unknown) => {
+  if (!example || typeof example !== "object") return null;
+  if ("sender" in example) return "sender";
+  if ("sender_id" in example) return "sender_id";
+  if ("para_id" in example) return "para_id";
+  return null;
+};
+
+const attachSender = (
+  message: unknown,
+  sender: number,
+  senderKey: string | null
+) => {
+  if (message && typeof message === "object") {
+    if ("sender" in message || "sender_id" in message || "para_id" in message) {
+      return message;
+    }
+    if (senderKey) {
+      return { ...(message as Record<string, unknown>), [senderKey]: sender };
+    }
+  }
+
+  if (senderKey) {
+    return { [senderKey]: sender, data: message };
+  }
+
+  return message;
+};
+
+const buildHorizontalMessages = (
+  hrmp: XcmMessages["hrmp"],
+  senderKey: string | null
+) => {
+  const fullMessages: unknown[] = [];
+
+  for (const [senderStr, messages] of Object.entries(hrmp)) {
+    const sender = Number(senderStr);
+    for (const message of messages ?? []) {
+      fullMessages.push(attachSender(message, sender, senderKey));
+    }
+  }
+
+  return fullMessages;
+};
+
 export const setValidationDataInherent = async (
   chain: Chain,
-  parentBlock: Block
+  parentBlock: Block,
+  xcm: XcmMessages
 ) => {
   if (
     !parentBlock.header.digests.some(
@@ -95,7 +150,8 @@ export const setValidationDataInherent = async (
   });
   const prevValidationDataExt =
     prevValidationDataRaw && txDec(prevValidationDataRaw);
-  const prevValidationData = prevValidationDataExt?.call.value.value.data;
+  const prevCallValue = prevValidationDataExt?.call.value.value;
+  const prevValidationData = prevCallValue?.data;
 
   if (!prevValidationData) {
     throw new Error("TODO no prevValidationData in previous block");
@@ -172,6 +228,22 @@ export const setValidationDataInherent = async (
     Binary.toHex(headData) as HexString,
   ]);
 
+  const dmpHashKey = appendParaId(DMP_QUEUE_HEADS_KEY, paraId);
+  let dmpHash = Binary.fromHex(
+    decodedProof.get(dmpHashKey) ??
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+  );
+  for (const { msg, sent_at } of xcm.dmp) {
+    dmpHash = Blake2256(
+      dmpChain.enc({
+        hash: dmpHash,
+        sent_at,
+        msg_hash: Blake2256(Binary.toOpaque(msg)),
+      })
+    );
+  }
+  newEntries.push([dmpHashKey, Binary.toHex(dmpHash)]);
+
   // Create updated proof with all entries
   const [newStateRoot, newNodes]: [HexString, HexString[]] = await create_proof(
     existingNodes,
@@ -227,11 +299,20 @@ export const setValidationDataInherent = async (
 
   const inbound_messages_data = {
     downward_messages: {
-      full_messages: [],
+      full_messages: xcm.dmp,
       hashed_messages: [],
     },
     horizontal_messages: {
       full_messages: [],
+      // full_messages: buildHorizontalMessages(
+      //   xcm.hrmp,
+      //   inferSenderKey(
+      //     prevCallValue?.inbound_messages_data?.horizontal_messages
+      //       ?.full_messages?.[0] ??
+      //       prevCallValue?.inboundMessagesData?.horizontalMessages
+      //         ?.fullMessages?.[0]
+      //   )
+      // ),
       hashed_messages: [],
     },
   };
@@ -247,3 +328,9 @@ export const setValidationDataInherent = async (
   );
   return unsignedExtrinsic(callData!);
 };
+
+const dmpChain = Struct({
+  hash: Bytes(32),
+  sent_at: u32,
+  msg_hash: Bytes(32),
+});

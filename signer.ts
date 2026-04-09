@@ -10,9 +10,5 @@ const alice_mnemonic =
 const entropy = mnemonicToEntropy(alice_mnemonic);
 const miniSecret = entropyToMiniSecret(entropy);
 const derive = sr25519CreateDerive(miniSecret);
-const alice = derive("//Bob");
-export const aliceSigner = getPolkadotSigner(
-  alice.publicKey,
-  "Sr25519",
-  alice.sign
-);
+const bob = derive("//Bob");
+export const bobSigner = getPolkadotSigner(bob.publicKey, "Sr25519", bob.sign);

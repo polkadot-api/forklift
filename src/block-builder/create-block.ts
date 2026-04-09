@@ -27,15 +27,22 @@ import { paraInherentEnterInherent } from "./para-enter";
 import { getCurrentSlot } from "./slot-utils";
 import { getConstant, getStorageCodecs } from "../codecs";
 
+export interface XcmMessages {
+  dmp: Array<{
+    sent_at: number;
+    msg: Uint8Array;
+  }>;
+  hrmp: Record<number, unknown[]>;
+  ump: Record<number, Uint8Array[]>;
+}
+
 export interface CreateBlockParams {
   parent: HexString;
   unsafeBlockHeight?: number;
   transactions: Uint8Array[];
-  dmp: Uint8Array[];
-  hrmp: Record<number, Uint8Array[]>;
-  ump: Record<number, Uint8Array[]>;
   storage: Record<HexString, Uint8Array | null>;
   disableOnIdle: boolean;
+  xcm: XcmMessages;
 }
 
 export interface Block {
@@ -67,7 +74,7 @@ export const createBlock = async (
 
   const extrinsics = [
     await timestampInherent(chain, parent),
-    await setValidationDataInherent(chain, parent),
+    await setValidationDataInherent(chain, parent, params.xcm),
     await paraInherentEnterInherent(chain, parent),
     ...params.transactions,
   ].filter((v) => v !== null);
@@ -216,6 +223,7 @@ const buildBlock = async (
         mockSignatureHost: true,
       });
       body.push(extrinsic);
+      // console.log(Object.fromEntries(applyResponse.storageDiff));
 
       storageOverrides = {
         ...storageOverrides,
@@ -274,6 +282,7 @@ const buildBlock = async (
   if (originalWeight) {
     storageOverrides[originalWeight.key] = originalWeight.value;
   }
+  // console.log(Object.fromEntries(finalizeResponse.storageDiff));
 
   // Apply finalize storage changes
   storageOverrides = {

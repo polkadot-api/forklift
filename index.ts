@@ -1,66 +1,66 @@
-import type { JsonRpcConnection } from "@polkadot-api/substrate-client";
+import { Binary, createClient, Enum } from "polkadot-api";
 import { forklift } from "./src/forklift";
-import { createClient } from "polkadot-api";
+import { createServer } from "./src/server";
+import { bobSigner } from "./signer";
 
-const fork = forklift(
+const relay = forklift(
   {
     type: "remote",
     value: {
-      url: "wss://sys.ibp.network/asset-hub-paseo",
+      url: "wss://polkadot.ibp.network",
     },
   },
   {
     disableOnIdle: true,
+    key: "relay",
   }
 );
+const relayServer = createServer(relay, { port: 3000 });
+console.log("listening relay on port", relayServer.port);
 
-// const client = createClient(fork.serve);
-// const finalized = await client.getFinalizedBlock();
+const relayClient = createClient(relay.serve);
 
-// await fork.newBlock({
-//   unsafeBlockHeight: finalized.number + 2,
-// });
-
-const server = Bun.serve({
-  fetch(req, server) {
-    const success = server.upgrade(req, { data: {} as any });
-    if (success) {
-      // Bun automatically returns a 101 Switching Protocols
-      // if the upgrade succeeds
-      return undefined;
-    }
-
-    // handle HTTP request normally
-    return new Response("Nothing to see here, move along");
-  },
-  websocket: {
-    data: {} as {
-      connection: JsonRpcConnection;
-    },
-    // this is called when a message is received
-    async message(ws, message) {
-      try {
-        if (typeof message !== "string") throw null;
-        ws.data.connection.send(JSON.parse(message));
-      } catch {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32700,
-              message: "Unable to parse message",
-            },
-          })
-        );
-      }
-    },
-    open(ws) {
-      ws.data.connection = fork.serve((msg) => ws.send(JSON.stringify(msg)));
-    },
-    close(ws) {
-      ws.data.connection.disconnect();
-    },
-  },
+await relay.setStorage((await relayClient.getFinalizedBlock()).hash, {
+  ["0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da94f9aea1afa791265fae359272badc1cf8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48"]:
+    Binary.fromHex(
+      "0x000000000000000001000000000000000010a5d4e80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080"
+    ),
 });
 
-console.log("listening on port", server.port);
+const tx = await relayClient
+  .getUnsafeApi()
+  .txFromCallData(Binary.fromHex("0x630004000100a10f04040a"));
+
+try {
+  const txResult = await tx.signAndSubmit(bobSigner);
+  console.log("Tx finished", txResult);
+} catch {}
+
+const assetHub = forklift(
+  {
+    type: "remote",
+    value: {
+      url: "wss://sys.ibp.network/asset-hub-polkadot",
+    },
+  },
+  {
+    disableOnIdle: true,
+    key: "assetHub",
+    async xcmProvider() {
+      const relayXcm = await relay.getXcm();
+
+      return {
+        dmp: relayXcm.dmp[1000] ?? [],
+        hrmp: [],
+        ump: {},
+      };
+    },
+  }
+);
+const assetHubServer = createServer(assetHub, { port: 3001 });
+console.log("listening assetHub on port", assetHubServer.port);
+
+setTimeout(async () => {
+  console.log("Create block");
+  await assetHub.newBlock();
+}, 3000);
