@@ -103,7 +103,7 @@ interface Chain {
   newBlock(opts?): Promise<Block>; // Returns the new Block
   changeBest(hash): void;
   changeFinalized(hash): void;
-  setStorage(hash, changes): void;
+  setStorage(hash, changes): void; // changes: Record<HexString, Uint8Array | null> — null = delete
 
   // Storage queries (lazy-load from source)
   // Return StorageNode to expose hash for merkle proofs
@@ -129,7 +129,7 @@ interface Chain {
 - Storage is **lazy-loaded**: queries check block's trie first, then fall back to source
 - The `initialBlock.storageRoot` is mutated as data loads from source
 - Newer blocks check both their own trie AND initialBlock's trie (for newly loaded data)
-- `setStorage` directly modifies a block's storageRoot (for staging changes)
+- `setStorage` directly modifies a block's storageRoot (for staging changes); `null` values trigger soft-deletes
 - `changeFinalized` validates the block is a descendant of current finalized, updates best if needed
 - `changeBest` validates the block is a descendant of finalized
 - Storage methods return `StorageNode` (not raw bytes) to expose hash for merkle proofs
@@ -137,7 +137,6 @@ interface Chain {
 - `getBlock` provides synchronous access to loaded blocks
 - `getStorageDiff` compares against parent by default, or a specified `baseHash`
 - No block pruning — forklift is for short-lived test scenarios, not long-running nodes
-- Runtime code is cached to `code.bin` to speed up restarts during development. This will be removed (or made properly) before release.
 
 **`finalizedAndPruned$`** is a helper observable exported from chain.ts that emits `{ finalized: HexString[], pruned: HexString[] }` whenever finalization advances, used by chainHead_v1_follow.
 
@@ -415,6 +414,23 @@ Storage changes accumulate in `storageOverrides` across all runtime calls.
 
 Delegates to `source.getChainSpecData()` for chain name, genesis hash, and properties.
 
+### CLI (`cli.ts`)
+
+Entry point for the `forklift` command. Built with `commander`.
+
+```
+forklift <url> [options]
+```
+
+| Option                | Description                       | Default          |
+| --------------------- | --------------------------------- | ---------------- |
+| `-b, --block <block>` | Block number or hash to fork from | latest finalized |
+| `-p, --port <port>`   | Port to listen on                 | `3000`           |
+
+- Block option: numeric strings are parsed as block numbers, anything else treated as a hex hash
+- Starts a `createWsServer` on the given port and logs the listening address
+- Registered as `bin.forklift` in `package.json`; install with `bun link`
+
 ## Dependencies
 
 - `@polkadot-api/substrate-client` — Low-level substrate RPC client
@@ -425,6 +441,7 @@ Delegates to `source.getChainSpecData()` for chain name, genesis hash, and prope
 - `@acala-network/chopsticks-executor` — smoldot-based WASM executor for runtime calls
 - `polkadot-api` — `createClient`, `Binary`, `Enum`, `HexString`, `BlockHeader`
 - `rxjs` — Reactive streams for chain state
+- `commander` — CLI argument parsing
 
 ## Implementation Status
 
@@ -449,6 +466,7 @@ Delegates to `source.getChainSpecData()` for chain name, genesis hash, and prope
 - [x] Relay chain support (`ParaInherent.enter` inherent)
 - [x] `disableOnIdle` option to skip on_idle hooks during block production
 - [x] AURA and BABE digest slot handling
+- [x] CLI (`cli.ts`) — `forklift <url>` command via `commander`
 - [ ] `chainHead_v1_storage` child trie support
 - [ ] `chainHead_v1_storage` pagination
 
@@ -479,5 +497,5 @@ console.log("new block:", hash);
 - Uses Bun as the JavaScript runtime
 - TypeScript with strict mode
 - Run with `bun run index.ts`
+- CLI: `bun cli.ts <url>` or `forklift <url>` after `bun link`
 - Type check with `bunx tsc --noEmit`
-- Runtime code is cached to `code.bin` to speed up subsequent runs
