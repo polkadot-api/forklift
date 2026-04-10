@@ -1,6 +1,8 @@
 import { create_proof, decode_proof } from "@acala-network/chopsticks-executor";
 import {
   Blake2256,
+  Bytes,
+  Struct,
   Twox128,
   Twox64Concat,
   blockHeader,
@@ -18,7 +20,7 @@ import {
   getTxCodec,
   unsignedExtrinsic,
 } from "../codecs";
-import type { Block } from "./create-block";
+import type { Block, XcmMessages } from "./create-block";
 import {
   getCurrentSlot,
   getSlotDuration,
@@ -37,6 +39,13 @@ const storagePrefix = (pallet: string, storage: string): HexString =>
       Twox128(textEncoder.encode(storage)),
     ])
   ) as HexString;
+
+const DMP_QUEUE_HEADS_KEY = storagePrefix("Dmp", "DownwardMessageQueueHeads");
+
+const appendParaId = (key: HexString, paraId: number) =>
+  Binary.toHex(
+    mergeUint8([Binary.fromHex(key), Twox64Concat(u32.enc(paraId))])
+  );
 
 const BABE_CURRENT_SLOT_KEY = storagePrefix("Babe", "CurrentSlot");
 
@@ -69,7 +78,8 @@ const encodeHeadData = (header: Uint8Array): Uint8Array => {
 
 export const setValidationDataInherent = async (
   chain: Chain,
-  parentBlock: Block
+  parentBlock: Block,
+  xcm: XcmMessages
 ) => {
   if (
     !parentBlock.header.digests.some(
@@ -102,7 +112,7 @@ export const setValidationDataInherent = async (
   }
 
   // Get parachain ID from runtime constant
-  const paraId: number = await getConstant(
+  const paraId: number | null = await getConstant(
     parentBlock,
     "ParachainSystem",
     "SelfParaId"
@@ -172,6 +182,22 @@ export const setValidationDataInherent = async (
     Binary.toHex(headData) as HexString,
   ]);
 
+  const dmpHashKey = appendParaId(DMP_QUEUE_HEADS_KEY, paraId);
+  let dmpHash = Binary.fromHex(
+    decodedProof.get(dmpHashKey) ??
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+  );
+  for (const { msg, sent_at } of xcm.dmp) {
+    dmpHash = Blake2256(
+      dmpChain.enc({
+        hash: dmpHash,
+        sent_at,
+        msg_hash: Blake2256(Binary.toOpaque(msg)),
+      })
+    );
+  }
+  newEntries.push([dmpHashKey, Binary.toHex(dmpHash)]);
+
   // Create updated proof with all entries
   const [newStateRoot, newNodes]: [HexString, HexString[]] = await create_proof(
     existingNodes,
@@ -227,7 +253,7 @@ export const setValidationDataInherent = async (
 
   const inbound_messages_data = {
     downward_messages: {
-      full_messages: [],
+      full_messages: xcm.dmp,
       hashed_messages: [],
     },
     horizontal_messages: {
@@ -247,3 +273,8 @@ export const setValidationDataInherent = async (
   );
   return unsignedExtrinsic(callData!);
 };
+const dmpChain = Struct({
+  hash: Bytes(32),
+  sent_at: u32,
+  msg_hash: Bytes(32),
+});

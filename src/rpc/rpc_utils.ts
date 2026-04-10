@@ -5,10 +5,11 @@ import type {
   JsonRpcResponse,
 } from "@polkadot-api/substrate-client";
 import { Subscription, type Observable } from "rxjs";
+import type { DmpMessage } from "../block-builder/create-block";
 import type { Chain } from "../chain";
-import type { TxPool } from "../txPool";
-import type { Source } from "../source";
 import type { Forklift } from "../forklift";
+import type { Source } from "../source";
+import type { TxPool } from "../txPool";
 
 export interface Connection {
   disconnect$: Observable<void>;
@@ -30,6 +31,9 @@ export type ServerContext = {
   chain: Chain;
   txPool: TxPool;
   newBlock: Forklift["newBlock"];
+  xcm: {
+    pushDmp: (messages: Array<DmpMessage>) => void;
+  };
 };
 
 export type RpcMethod<T = any> = (
