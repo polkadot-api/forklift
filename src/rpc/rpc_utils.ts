@@ -1,6 +1,7 @@
 import type {
   JsonRpcError,
   JsonRpcMessage,
+  JsonRpcProvider,
   JsonRpcRequest,
   JsonRpcResponse,
 } from "@polkadot-api/substrate-client";
@@ -29,10 +30,12 @@ export interface Connection {
 export type ServerContext = {
   source: Source;
   chain: Chain;
+  provider: JsonRpcProvider;
   txPool: TxPool;
   newBlock: Forklift["newBlock"];
   xcm: {
     pushDmp: (messages: Array<DmpMessage>) => void;
+    pushUmp: (paraId: number, messages: Array<Uint8Array>) => void;
   };
 };
 

@@ -57,7 +57,6 @@ export interface DmpMessage {
 export interface XcmMessages {
   dmp: Array<DmpMessage>;
   hrmp: Record<number, unknown[]>;
-  ump: Record<number, Uint8Array[]>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"

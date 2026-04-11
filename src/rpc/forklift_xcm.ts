@@ -1,4 +1,4 @@
-import type { HexString } from "polkadot-api";
+import { Binary, createClient, type HexString } from "polkadot-api";
 import { createWsClient } from "polkadot-api/ws";
 import { attachRelay, consumeDmp } from "../xcm";
 import { errorResponse, getParams, respond, type RpcMethod } from "./rpc_utils";
@@ -11,14 +11,15 @@ import { errorResponse, getParams, respond, type RpcMethod } from "./rpc_utils";
 export const forklift_xcm_attach_relay: RpcMethod<{ url: string }> = async (
   con,
   req,
-  { chain, xcm }
+  { chain, xcm, provider }
 ) => {
   try {
     const { url } = getParams(req, ["url"]);
 
-    const client = createWsClient(url);
+    const relayClient = createWsClient(url);
+    const parachainClient = createClient(provider);
     await Promise.race([
-      await attachRelay(client, chain, xcm),
+      await attachRelay(relayClient, parachainClient, chain, xcm),
       new Promise((_, rej) =>
         setTimeout(() => rej(new Error("Timed out")), 10_000)
       ),
@@ -53,6 +54,30 @@ export const forklift_xcm_consume_dmp: RpcMethod<{
     con.send(respond(req, null));
   } catch (ex: any) {
     console.error("forklift_xcm_consume_dmp", ex);
+
+    con.send(
+      errorResponse(req, {
+        code: -1,
+        message: ex.message,
+      })
+    );
+  }
+};
+
+/**
+ * Pushes UMP XCM messages into the relay dispatch queue at a specific block.
+ */
+export const forklift_xcm_push_ump: RpcMethod<{
+  paraId: number;
+  messages: HexString[];
+}> = async (con, req, { xcm }) => {
+  const { paraId, messages } = getParams(req, ["paraId", "messages"]);
+
+  try {
+    xcm.pushUmp(paraId, messages.map(Binary.fromHex));
+    con.send(respond(req, null));
+  } catch (ex: any) {
+    console.error("forklift_xcm_push_ump", ex);
 
     con.send(
       errorResponse(req, {

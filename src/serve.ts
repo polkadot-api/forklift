@@ -24,6 +24,7 @@ import { dev_newBlock, dev_setStorage } from "./rpc/dev";
 import {
   forklift_xcm_attach_relay,
   forklift_xcm_consume_dmp,
+  forklift_xcm_push_ump,
 } from "./rpc/forklift_xcm";
 import type { Connection, RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import {
@@ -47,12 +48,15 @@ export const methods: Record<string, RpcMethod> = {
   dev_setStorage,
   forklift_xcm_attach_relay,
   forklift_xcm_consume_dmp,
+  forklift_xcm_push_ump,
   transaction_v1_broadcast,
   transaction_v1_stop,
 };
 
-export const createServer = (ctx: ServerContext): JsonRpcProvider => {
-  return (send) => {
+export const createServer = (
+  ctx: Omit<ServerContext, "provider">
+): JsonRpcProvider => {
+  const provider: JsonRpcProvider = (send) => {
     const disconnect = new Subject<void>();
     const con: Connection = {
       send,
@@ -75,7 +79,7 @@ export const createServer = (ctx: ServerContext): JsonRpcProvider => {
 
         const method = methods[req.method];
         if (method) {
-          method(con, req, ctx);
+          method(con, req, { ...ctx, provider });
         } else {
           console.log(req);
           send({
@@ -90,6 +94,7 @@ export const createServer = (ctx: ServerContext): JsonRpcProvider => {
       },
     };
   };
+  return provider;
 };
 
 export const createWsServer = (
