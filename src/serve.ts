@@ -23,7 +23,10 @@ import {
 import { dev_newBlock, dev_setStorage } from "./rpc/dev";
 import {
   forklift_xcm_attach_relay,
+  forklift_xcm_attach_sibling,
   forklift_xcm_consume_dmp,
+  forklift_xcm_open_hrmp_channel,
+  forklift_xcm_push_hrmp,
   forklift_xcm_push_ump,
 } from "./rpc/forklift_xcm";
 import type { Connection, RpcMethod, ServerContext } from "./rpc/rpc_utils";
@@ -47,7 +50,10 @@ export const methods: Record<string, RpcMethod> = {
   dev_newBlock,
   dev_setStorage,
   forklift_xcm_attach_relay,
+  forklift_xcm_attach_sibling,
   forklift_xcm_consume_dmp,
+  forklift_xcm_open_hrmp_channel,
+  forklift_xcm_push_hrmp,
   forklift_xcm_push_ump,
   transaction_v1_broadcast,
   transaction_v1_stop,

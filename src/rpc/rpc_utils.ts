@@ -36,6 +36,7 @@ export type ServerContext = {
   xcm: {
     pushDmp: (messages: Array<DmpMessage>) => void;
     pushUmp: (paraId: number, messages: Array<Uint8Array>) => void;
+    pushHrmp: (paraId: number, messages: Array<Uint8Array>) => void;
   };
 };
 

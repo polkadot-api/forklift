@@ -314,6 +314,101 @@ export const pushUmp = async (
   }
 };
 
+/**
+ * Attaches two sibling parachains for bidirectional HRMP message passing.
+ * Called on self (Para A) with the sibling's (Para B) URL.
+ * Sets up:
+ *  - Sibling → Self: watch Para B's HrmpOutboundMessages, push to self via xcm.pushHrmp
+ *  - Self → Sibling: watch Para A's HrmpOutboundMessages, push to Para B via forklift_xcm_push_hrmp
+ */
+export const attachSibling = async (
+  siblingClient: PolkadotClient,
+  selfClient: PolkadotClient,
+  chain: Chain,
+  xcm: { pushHrmp: (senderId: number, messages: Uint8Array[]) => void }
+) => {
+  const selfParaId: number | null = await getConstant(
+    chain.getBlock(await firstValueFrom(chain.finalized$))!,
+    "ParachainSystem",
+    "SelfParaId"
+  );
+  if (selfParaId == null) throw new Error("Could not get self parachain ID");
+
+  const siblingApi = siblingClient.getTypedApi(parachain);
+  const selfApi = selfClient.getTypedApi(parachain);
+
+  const staticApis = await siblingApi.getStaticApis();
+  if (
+    !staticApis.compat.query.ParachainSystem.HrmpOutboundMessages.isCompatible(
+      CompatibilityLevel.Partial
+    )
+  ) {
+    throw new Error("HrmpOutboundMessages incompatible");
+  }
+
+  const siblingParaId: number =
+    await siblingApi.constants.ParachainSystem.SelfParaId();
+  console.log(
+    `Attaching HRMP: self=${selfParaId} <-> sibling=${siblingParaId}`
+  );
+
+  // Open egress channels on both sides so each chain's relay proof includes the channel.
+  chain.openHrmpChannel(siblingParaId);
+  siblingClient._request("forklift_xcm_open_hrmp_channel", [selfParaId]);
+
+  // Sibling → Self: watch Para B outbound, push messages destined for self
+  siblingClient.finalizedBlock$
+    .pipe(
+      concatMapEager((block) =>
+        from(
+          siblingApi.query.ParachainSystem.HrmpOutboundMessages.getValue({
+            at: block.hash,
+          })
+        ).pipe(
+          catchError((ex) => {
+            console.error("Error reading sibling HRMP outbound messages", ex);
+            return [];
+          })
+        )
+      )
+    )
+    .subscribe((messages) => {
+      const forSelf = messages.filter((m) => m.recipient === selfParaId);
+      if (forSelf.length > 0) {
+        xcm.pushHrmp(
+          siblingParaId,
+          forSelf.map((m) => m.data)
+        );
+      }
+    });
+
+  // Self → Sibling: watch Para A outbound, push messages destined for sibling
+  selfClient.finalizedBlock$
+    .pipe(
+      concatMapEager((block) =>
+        from(
+          selfApi.query.ParachainSystem.HrmpOutboundMessages.getValue({
+            at: block.hash,
+          })
+        ).pipe(
+          catchError((ex) => {
+            console.error("Error reading self HRMP outbound messages", ex);
+            return [];
+          })
+        )
+      )
+    )
+    .subscribe((messages) => {
+      const forSibling = messages.filter((m) => m.recipient === siblingParaId);
+      if (forSibling.length > 0) {
+        siblingClient._request("forklift_xcm_push_hrmp", [
+          selfParaId,
+          forSibling.map((m) => Binary.toHex(m.data)),
+        ]);
+      }
+    });
+};
+
 const heapEncoder = (value: Uint8Array[]) =>
   Tuple(
     ...value.map((coded) =>

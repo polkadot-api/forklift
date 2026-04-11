@@ -2,5 +2,5 @@ import type { WhitelistEntriesByChain } from "@polkadot-api/descriptors";
 
 export const whitelist: WhitelistEntriesByChain = {
   relay: ["query.Dmp.DownwardMessageQueues"],
-  parachain: ["query.ParachainSystem.UpwardMessages"],
+  parachain: ["query.ParachainSystem.UpwardMessages", "query.ParachainSystem.HrmpOutboundMessages", "const.ParachainSystem.SelfParaId"],
 };

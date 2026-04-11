@@ -86,6 +86,18 @@ export function forklift(
     };
   });
 
+  const hrmpSubject = new Subject<{
+    paraId: number;
+    messages: Uint8Array[];
+  }>();
+  let hrmpMsgQueues: Record<number, Uint8Array[]> = {};
+  const hrmpSub = hrmpSubject.subscribe(({ paraId, messages }) => {
+    hrmpMsgQueues = {
+      ...hrmpMsgQueues,
+      [paraId]: [...(hrmpMsgQueues[paraId] ?? []), ...messages],
+    };
+  });
+
   let buildBlockQueue: Promise<void> | null = null;
   let blocksEnqueued = 0;
   const finalizeTimers = new Set<Timeout>();
@@ -115,6 +127,9 @@ export function forklift(
       await pushUmp(chain, Number(paraId), ump[paraId]!);
     }
 
+    const hrmp = hrmpMsgQueues;
+    hrmpMsgQueues = {};
+
     try {
       const type =
         opts?.type ||
@@ -130,7 +145,11 @@ export function forklift(
       // An automatic trigger from tx pool should not produce the block if the block won't have any tx
       if (
         automatic &&
-        transactions.length + dmp.length + Object.keys(ump).length === 0
+        transactions.length +
+          dmp.length +
+          Object.keys(ump).length +
+          Object.keys(hrmp).length ===
+          0
       ) {
         console.log(
           "Skipped building automatic block: none of the transactions are ready"
@@ -143,10 +162,7 @@ export function forklift(
         parent,
         transactions,
         disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle,
-        xcm: {
-          dmp,
-          hrmp: {},
-        },
+        xcm: { dmp, hrmp },
       });
 
       if (type == null) {
@@ -172,8 +188,14 @@ export function forklift(
 
       return block.hash;
     } catch (ex) {
-      // Restore messages that were in dmp queue, as we removed them but they couldn't be processed
+      // Restore messages that were dequeued but couldn't be processed
       dmpMsgQueue = [...dmp, ...dmpMsgQueue];
+      for (const senderId in hrmp) {
+        hrmpMsgQueues[senderId] = [
+          ...(hrmp[senderId] ?? []),
+          ...(hrmpMsgQueues[senderId] ?? []),
+        ];
+      }
       throw ex;
     } finally {
       buildBlockQueue = null;
@@ -182,29 +204,33 @@ export function forklift(
   };
 
   let txBlockPending = false;
-  const txPoolSub = merge(txPool.txAdded$, dmpSubject, umpSubject).subscribe(
-    () => {
-      if (options.buildBlockMode.type === "manual") return;
-      if (txBlockPending || blocksEnqueued) {
-        // Another tx has triggered a new block, this will get included
-        return;
-      }
-
-      const delay = options.buildBlockMode.value;
-      if (delay === 0) {
-        return newBlock(undefined, true);
-      }
-      txBlockPending = true;
-      setTimeout(() => {
-        txBlockPending = false;
-        if (!blocksEnqueued) newBlock(undefined, true);
-      }, delay);
+  const txPoolSub = merge(
+    txPool.txAdded$,
+    dmpSubject,
+    umpSubject,
+    hrmpSubject
+  ).subscribe(() => {
+    if (options.buildBlockMode.type === "manual") return;
+    if (txBlockPending || blocksEnqueued) {
+      // Another tx has triggered a new block, this will get included
+      return;
     }
-  );
+
+    const delay = options.buildBlockMode.value;
+    if (delay === 0) {
+      return newBlock(undefined, true);
+    }
+    txBlockPending = true;
+    setTimeout(() => {
+      txBlockPending = false;
+      if (!blocksEnqueued) newBlock(undefined, true);
+    }, delay);
+  });
 
   const xcm: ServerContext["xcm"] = {
     pushDmp: (messages) => dmpSubject.next(messages),
     pushUmp: (paraId, messages) => umpSubject.next({ paraId, messages }),
+    pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
   };
 
   return {
@@ -225,6 +251,7 @@ export function forklift(
     destroy() {
       dmpSub.unsubscribe();
       umpSub.unsubscribe();
+      hrmpSub.unsubscribe();
       txPoolSub.unsubscribe();
       txPool.destroy();
       source.destroy();

@@ -56,7 +56,7 @@ export interface DmpMessage {
 
 export interface XcmMessages {
   dmp: Array<DmpMessage>;
-  hrmp: Record<number, unknown[]>;
+  hrmp: Record<number, Uint8Array[]>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -193,6 +193,8 @@ const buildBlock = async (
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
     storageOverrides,
   });
+
+  // console.log("init storageDiff", Object.fromEntries(initResponse.storageDiff));
 
   // Apply storage changes
   storageOverrides = {

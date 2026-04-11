@@ -68,6 +68,9 @@ export interface Chain {
   ) => Promise<
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
+
+  hrmpChannels: Set<number>;
+  openHrmpChannel: (recipientParaId: number) => void;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -448,6 +451,8 @@ export const createChain = (source: Source, key?: string): Chain => {
     return block;
   };
 
+  const hrmpEgressChannels = new Set<number>();
+
   const chain: Chain = {
     blocks$: blocks$.asObservable(),
     newBlocks$: newBlocks$.asObservable(),
@@ -462,6 +467,9 @@ export const createChain = (source: Source, key?: string): Chain => {
     getStorageBatch,
     getStorageDescendants,
     getStorageDiff,
+    hrmpChannels: hrmpEgressChannels,
+    openHrmpChannel: (recipientParaId) =>
+      hrmpEgressChannels.add(recipientParaId),
   };
 
   return chain;
