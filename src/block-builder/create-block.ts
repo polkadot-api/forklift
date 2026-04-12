@@ -42,7 +42,6 @@ export interface CreateBlockParams {
 export interface Block {
   hash: HexString;
   parent: HexString;
-  height: number;
   code: Uint8Array;
   storageRoot: StorageNode;
   header: BlockHeader;
@@ -74,7 +73,7 @@ export const createBlock = async (
   if (!parent) throw new Error("Block not found");
 
   // Create header template for Core_initialize_block
-  const height = params.unsafeBlockHeight ?? parent.height + 1;
+  const height = params.unsafeBlockHeight ?? parent.header.number + 1;
 
   const extrinsics = [
     await timestampInherent(chain, parent),
@@ -144,7 +143,6 @@ export const createBlock = async (
   const block: Block = {
     hash: blockHash,
     parent: parentHash,
-    height,
     code,
     storageRoot: newStorageRoot,
     header: finalHeader,

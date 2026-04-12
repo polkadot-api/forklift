@@ -186,7 +186,7 @@ export function forklift(
         const [best, blocks] = await firstValueFrom(
           combineLatest([chain.best$, chain.blocks$])
         );
-        if (block.height > blocks[best]!.height) {
+        if (block.header.number > blocks[best]!.header.number) {
           chain.changeBest(block.hash);
         }
 

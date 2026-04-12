@@ -72,12 +72,13 @@ export const chainHead_v1_follow: RpcMethod = async (
   const finalizedBlockHashes = [finalized];
   ctx.pinnedBlocks.add(finalized);
   let block = finalized;
-  let nextBlockHeight = blocks[block]!.height;
+  let nextBlockHeight = blocks[block]!.header.number;
   for (let i = 0; i < 5 && blocks[block]?.parent! in blocks; i++) {
     block = blocks[block]!.parent;
     // due to unsafeBlockHeight there could be gaps we can't expose
-    if (!blocks[block] || blocks[block]!.height !== nextBlockHeight - 1) break;
-    nextBlockHeight = blocks[block]!.height;
+    if (!blocks[block] || blocks[block]!.header.number !== nextBlockHeight - 1)
+      break;
+    nextBlockHeight = blocks[block]!.header.number;
     ctx.pinnedBlocks.add(block);
     finalizedBlockHashes.push(block);
   }

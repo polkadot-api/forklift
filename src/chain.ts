@@ -107,7 +107,6 @@ export const createChain = (source: Source, key?: string): Chain => {
       hash: block.blockHash,
       parent:
         "0x0000000000000000000000000000000000000000000000000000000000000000",
-      height: block.header.number,
       header: block.header,
       body: block.body,
       code,
@@ -144,7 +143,7 @@ export const createChain = (source: Source, key?: string): Chain => {
   const isDescendant = (parentHash: HexString, descendantHash: HexString) => {
     const parent = getBlock(parentHash);
     let block = getBlock(descendantHash);
-    while (block.height > parent.height) {
+    while (block.header.number > parent.header.number) {
       block = getBlock(block.parent);
     }
     return block.hash === parent.hash;
