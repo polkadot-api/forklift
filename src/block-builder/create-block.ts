@@ -80,11 +80,19 @@ export const createBlock = async (
     ...params.transactions,
   ].filter((v) => v !== null);
 
+  const storageOverrides = Object.fromEntries(
+    Object.entries(params.storage).map(([key, value]) => [
+      key,
+      value == null ? null : Binary.toHex(value),
+    ])
+  );
+
   const result = await buildBlock(
     chain,
     height,
     parent,
     extrinsics,
+    storageOverrides,
     params.disableOnIdle
   );
 
@@ -97,13 +105,9 @@ export const createBlock = async (
 
   // Create new storage root from parent's, applying the diff
   let newStorageRoot = parent.storageRoot;
-  const storageChanges = {
-    ...result.storageDiff,
-    ...params.storage,
-  };
-  for (const key in storageChanges) {
+  for (const key in result.storageDiff) {
     const binKey = Binary.fromHex(key as HexString);
-    const value = storageChanges[key];
+    const value = result.storageDiff[key];
 
     if (value != null) {
       newStorageRoot = insertValue(
@@ -158,6 +162,7 @@ const buildBlock = async (
   height: number,
   parent: Block,
   extrinsics: Uint8Array[],
+  storageOverrides: Record<HexString, HexString | null>,
   disableIdleHook?: boolean
 ) => {
   const parentHash = parent.hash;
@@ -175,7 +180,6 @@ const buildBlock = async (
 
   // Override height of parent to support unsafeBlockHeight
   const systemNumberCodec = await getStorageCodecs(parent, "System", "Number");
-  let storageOverrides: Record<HexString, HexString | null> = {};
   if (systemNumberCodec) {
     storageOverrides = {
       [systemNumberCodec.keys.enc()]: Binary.toHex(

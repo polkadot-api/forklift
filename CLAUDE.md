@@ -100,7 +100,7 @@ interface Chain {
   finalized$: Observable<HexString>;
 
   getBlock(hash): Block | undefined;
-  newBlock(opts?): Promise<Block>; // Returns the new Block
+  newBlock(type, params: CreateBlockParams): Promise<Block>;
   changeBest(hash): void;
   changeFinalized(hash): void;
   setStorage(hash, changes): void; // changes: Record<HexString, Uint8Array | null> — null = delete
@@ -134,6 +134,7 @@ interface Chain {
 - The `initialBlock.storageRoot` is mutated as data loads from source
 - Newer blocks check both their own trie AND initialBlock's trie (for newly loaded data)
 - `setStorage` directly modifies a block's storageRoot (for staging changes); `null` values trigger soft-deletes
+- `Chain.newBlock` takes a `type` and a `CreateBlockParams` (parent, transactions, xcm, storage, disableOnIdle, unsafeBlockHeight); `storage` overrides are applied to the parent trie before block execution so the runtime sees them
 - `changeFinalized` validates the block is a descendant of current finalized, updates best if needed
 - `changeBest` validates the block is a descendant of finalized
 - Storage methods return `StorageNode` (not raw bytes) to expose hash for merkle proofs
@@ -181,6 +182,14 @@ interface Forklift {
   destroy(): void;
 }
 
+interface NewBlockOptions {
+  type: "best" | "finalized" | "fork";
+  parent: HexString;
+  unsafeBlockHeight?: number;
+  disableOnIdle: boolean;
+  storage: Record<HexString, Uint8Array | null>; // applied before block is produced
+}
+
 interface ForkliftOptions {
   buildBlockMode: DelayMode; // manual | timer(ms)
   finalizeMode: DelayMode; // manual | timer(ms)
@@ -199,8 +208,10 @@ interface ForkliftOptions {
 **Block production flow:**
 
 - `newBlock()` is serialized via a queue (`buildBlockQueue`) — concurrent calls wait
-- Transactions from the tx pool are automatically included
-- If `automatic=true` and no transactions are ready, the block is skipped
+- Transactions are fetched from the tx pool automatically (not exposed in `NewBlockOptions`)
+- XCM messages are handled internally by the XCM routing layer (not exposed in `NewBlockOptions`)
+- `storage` overrides in `NewBlockOptions` are applied to the parent block's trie *before* `createBlock` runs, so the runtime sees them during execution
+- If `automatic=true` and no transactions or pending XCM messages exist, the block is skipped
 - After building, best is updated if the new block is taller than current best
 - Finalization uses a timer (or is immediate if `finalizeMode.timer === 0`)
 - `changeFinalized` clears pending finalization timers before applying
@@ -209,17 +220,6 @@ interface ForkliftOptions {
 
 - `txPool.txAdded$` triggers automatic block production (respecting `buildBlockMode`)
 - `blocksEnqueued` counter prevents duplicate automatic triggers
-
-**NewBlockOptions** supports:
-
-- `type` — "best", "finalized", or "fork"
-- `parent` — which block to build on (enables forking)
-- `unsafeBlockHeight` — override block height
-- `transactions` — extrinsics to include
-- `xcm.dmp` — DMP messages (`Array<{ sent_at, msg }>`) to inject via `set_validation_data`
-- `xcm.hrmp` — HRMP messages (`Record<senderId, Uint8Array[]>`) to inject via `set_validation_data`
-- `storage` — storage overrides
-- `disableOnIdle` — skip on_idle hooks during block finalization
 
 **XCM message queues** in `forklift.ts`:
 

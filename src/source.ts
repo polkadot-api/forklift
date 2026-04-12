@@ -89,7 +89,6 @@ export const createRemoteSource = (
       console.log(`Loading block ${blockHash}`);
       const headerHex = await archive.header(blockHash);
       const header = blockHeader.dec(Binary.fromHex(headerHex));
-      console.log(`Initial block loaded`);
 
       const body = await archive.body(blockHash);
 

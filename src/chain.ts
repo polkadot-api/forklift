@@ -1,8 +1,8 @@
+import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
   filter,
-  firstValueFrom,
   map,
   pairwise,
   Subject,
@@ -28,11 +28,6 @@ import {
   insertValue,
   type StorageNode,
 } from "./storage";
-import { file } from "bun";
-
-export interface NewBlockOptions extends CreateBlockParams {
-  type: "best" | "finalized" | "fork";
-}
 
 export interface Chain {
   blocks$: Observable<Record<HexString, Block>>;
@@ -42,7 +37,10 @@ export interface Chain {
 
   getBlock: (hash: HexString) => Block | undefined;
 
-  newBlock: (opts?: Partial<NewBlockOptions>) => Promise<Block>;
+  newBlock: (
+    type: "best" | "finalized" | "fork",
+    params: CreateBlockParams
+  ) => Promise<Block>;
   changeBest: (hash: HexString) => void;
   changeFinalized: (hash: HexString) => void;
   setStorage: (
@@ -397,37 +395,15 @@ export const createChain = (source: Source, key?: string): Chain => {
     );
   };
 
-  const newBlock = async (opts?: Partial<NewBlockOptions>): Promise<Block> => {
-    const {
-      type = "fork",
-      storage = {},
-      transactions = [],
-      xcm = {
-        dmp: [],
-        hrmp: {},
-        ump: {},
-      },
-      unsafeBlockHeight,
-      disableOnIdle = false,
-    } = opts ?? {};
+  const newBlock: Chain["newBlock"] = async (type, params): Promise<Block> => {
+    assertBlock(params.parent);
+    assertFinalizedDescendant(params.parent);
 
-    const parent = opts?.parent ?? (await firstValueFrom(best$));
-
-    assertBlock(parent);
-    assertFinalizedDescendant(parent);
-
-    const block = await createBlock(chain, {
-      parent,
-      storage,
-      transactions,
-      xcm,
-      unsafeBlockHeight,
-      disableOnIdle,
-    });
+    const block = await createBlock(chain, params);
 
     // If the finalized has changed while we were building the block and this one
     // became pruned, then we should fail.
-    assertFinalizedDescendant(parent);
+    assertFinalizedDescendant(params.parent);
 
     // Add block to blocks$
     blocks$.next({

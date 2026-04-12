@@ -1,14 +1,25 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
 import { combineLatest, firstValueFrom, merge, Subject } from "rxjs";
-import type { DmpMessage } from "./block-builder/create-block";
-import { createChain, type NewBlockOptions } from "./chain";
+import type {
+  CreateBlockParams,
+  DmpMessage,
+} from "./block-builder/create-block";
+import { createChain } from "./chain";
 import { runPrequeries } from "./prequeries";
 import type { ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
 import { pushUmp } from "./xcm";
+
+export interface NewBlockOptions {
+  type: "best" | "finalized" | "fork";
+  unsafeBlockHeight?: number;
+  parent: HexString;
+  disableOnIdle: boolean;
+  storage: CreateBlockParams["storage"];
+}
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -132,16 +143,17 @@ export function forklift(
 
     try {
       const type =
-        opts?.type ||
-        (options.finalizeMode.type === "timer" &&
-        options.finalizeMode.value === 0
+        opts?.unsafeBlockHeight != null
           ? "finalized"
-          : undefined);
+          : opts?.type ||
+            (options.finalizeMode.type === "timer" &&
+            options.finalizeMode.value === 0
+              ? "finalized"
+              : undefined);
       const parent = opts?.parent ?? (await firstValueFrom(chain.best$));
       const parentBlock = chain.getBlock(parent)!;
 
-      const transactions =
-        opts?.transactions ?? (await txPool.getTxsForBlock(parentBlock));
+      const transactions = await txPool.getTxsForBlock(parentBlock);
       // An automatic trigger from tx pool should not produce the block if the block won't have any tx
       if (
         automatic &&
@@ -156,13 +168,13 @@ export function forklift(
         );
         return parent;
       }
-      const block = await chain.newBlock({
-        ...opts,
-        type,
+      const block = await chain.newBlock(type ?? "fork", {
         parent,
         transactions,
-        disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle,
+        disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle ?? false,
         xcm: { dmp, hrmp },
+        storage: opts?.storage ?? {},
+        unsafeBlockHeight: opts?.unsafeBlockHeight,
       });
 
       if (type == null) {

@@ -12,8 +12,6 @@ import {
   from,
   map,
   merge,
-  pairwise,
-  startWith,
   Subscription,
   withLatestFrom,
 } from "rxjs";
@@ -71,8 +69,12 @@ export const chainHead_v1_follow: RpcMethod = async (
   const finalizedBlockHashes = [finalized];
   ctx.pinnedBlocks.add(finalized);
   let block = finalized;
+  let nextBlockHeight = blocks[block]!.height;
   for (let i = 0; i < 5 && blocks[block]?.parent! in blocks; i++) {
     block = blocks[block]!.parent;
+    // due to unsafeBlockHeight there could be gaps we can't expose
+    if (!blocks[block] || blocks[block]!.height !== nextBlockHeight - 1) break;
+    nextBlockHeight = blocks[block]!.height;
     ctx.pinnedBlocks.add(block);
     finalizedBlockHashes.push(block);
   }
@@ -115,22 +117,27 @@ export const chainHead_v1_follow: RpcMethod = async (
 
   ctx.subscription.add(
     chain.newBlocks$
-      .pipe(startWith(null), pairwise(), withLatestFrom(chain.blocks$))
-      .subscribe(([[prevHash, blockHash], blocks]) => {
+      .pipe(withLatestFrom(chain.blocks$))
+      .subscribe(([blockHash, blocks]) => {
         const block = blocks[blockHash!]!;
-        if (prevHash) {
-          const prevBlock = blocks[prevHash]!;
+        const prevBlock = blocks[block.parent];
+        if (prevBlock) {
           if (block.header.number != prevBlock.header.number + 1) {
             for (const op of Object.values(ctx.operations)) {
               op.unsubscribe();
             }
             ctx.subscription.unsubscribe();
             delete con.context.chainHead_v1_subs[subId];
-            con.send(
-              followEvent(subId, {
-                event: "stop",
-              })
-            );
+
+            // Enqueue in a macrotask because block needs to be finalized before re-subscription
+            // and we risk having synchronous re-entry.
+            setTimeout(() => {
+              con.send(
+                followEvent(subId, {
+                  event: "stop",
+                })
+              );
+            });
             return;
           }
         }
