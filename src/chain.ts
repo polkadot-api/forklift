@@ -1,7 +1,7 @@
-import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
+  combineLatest,
   filter,
   map,
   pairwise,
@@ -15,6 +15,7 @@ import {
   type CreateBlockParams,
 } from "./block-builder/create-block";
 import { setBlockMeta } from "./codecs";
+import type { Db } from "./db";
 import { getRuntimeVersion } from "./executor";
 import { logger } from "./logger";
 import type { Source } from "./source";
@@ -75,10 +76,10 @@ export interface Chain {
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
+const NULL_PARENT: HexString =
+  "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-export const createChain = (source: Source, key?: string): Chain => {
-  const cacheFile = key ? `code_${key}.bin` : null;
-
+export const createChain = (source: Source, db?: Db): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -86,50 +87,80 @@ export const createChain = (source: Source, key?: string): Chain => {
   const finalizedSrc$ = new BehaviorSubject<HexString | null>(null);
   const finalized$ = finalizedSrc$.pipe(filter((v) => v != null));
 
-  // Create the initial block from the source
-  const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
-    log.debug("loading code");
-    const code =
-      cacheFile && (await file(cacheFile).exists())
-        ? await file(cacheFile).bytes()
-        : await source.getStorage(CODE_KEY);
-
-    if (!code) {
-      throw new Error("No runtime code found at source block");
-    }
-    if (cacheFile) file(cacheFile).write(code);
-
-    log.debug("code loaded, getting runtime");
-    const initialRuntime = await getRuntimeVersion(code);
-    log.debug("runtime loaded");
-
-    const result: Block = {
-      hash: block.blockHash,
-      parent:
-        "0x0000000000000000000000000000000000000000000000000000000000000000",
-      header: block.header,
-      body: block.body,
-      code,
-      storageRoot: insertValue(
-        createRoot(),
-        Binary.fromHex(CODE_KEY),
-        CODE_KEY.length - 2,
-        code
-      ),
-      runtime: initialRuntime,
-      children: [],
-    };
-
-    blocks$.next({
-      [result.hash]: result,
+  // Persist chain state whenever best or finalized changes
+  if (db) {
+    combineLatest([best$, finalized$]).subscribe(([best, finalized]) => {
+      db.setChainState(best, finalized);
     });
-    setBlockMeta(chain, result);
+  }
 
-    bestSrc$.next(result.hash);
-    finalizedSrc$.next(result.hash);
+  // ── Try to restore from DB ───────────────────────────────────────────────
+  const dbState = db?.load();
 
-    return result;
-  });
+  // Create the initial block — either restored from DB or loaded from source
+  const asyncInitialBlock: Promise<Block> = dbState
+    ? (async () => {
+        // Restore all blocks into blocks$
+        const allBlocks = Object.fromEntries(
+          dbState.blocks.map((block) => [block.hash, block])
+        );
+
+        blocks$.next(allBlocks);
+        // wait a microtask to create the chain before wiring up runtimes
+        return Promise.resolve().then(() => {
+          // After chain is constructed, call setBlockMeta for all restored blocks
+          // (in height order so children can reuse parent metadata)
+          const sorted = [...dbState.blocks].sort(
+            (a, b) => a.header.number - b.header.number
+          );
+          for (const block of sorted) {
+            setBlockMeta(chain, block);
+          }
+
+          bestSrc$.next(dbState.best);
+          finalizedSrc$.next(dbState.finalized);
+          log.debug("chain restored from db");
+          return dbState.initialBlock;
+        });
+      })()
+    : source.block.then(async (block) => {
+        log.debug("loading code");
+        const code = await source.getStorage(CODE_KEY);
+
+        if (!code) {
+          throw new Error("No runtime code found at source block");
+        }
+
+        log.debug("code loaded, getting runtime");
+        const initialRuntime = await getRuntimeVersion(code);
+        log.debug("runtime loaded");
+
+        const result: Block = {
+          hash: block.blockHash,
+          parent: NULL_PARENT,
+          header: block.header,
+          body: block.body,
+          code,
+          storageRoot: insertValue(
+            createRoot(),
+            Binary.fromHex(CODE_KEY),
+            CODE_KEY.length - 2,
+            code
+          ),
+          runtime: initialRuntime,
+          children: [],
+        };
+
+        blocks$.next({ [result.hash]: result });
+        setBlockMeta(chain, result);
+
+        bestSrc$.next(result.hash);
+        finalizedSrc$.next(result.hash);
+
+        db?.saveBlock(result, true);
+
+        return result;
+      });
 
   const getBlock = (hash: HexString) => blocks$.getValue()[hash]!;
   const assertBlock = (hash: HexString) => {
@@ -157,7 +188,6 @@ export const createChain = (source: Source, key?: string): Chain => {
   const changeBest = (hash: HexString) => {
     assertBlock(hash);
     assertFinalizedDescendant(hash);
-
     bestSrc$.next(hash);
   };
 
@@ -193,6 +223,7 @@ export const createChain = (source: Source, key?: string): Chain => {
         );
       }
     }
+    db?.saveBlock(block);
   };
 
   const getStorage = async (
@@ -220,6 +251,7 @@ export const createChain = (source: Source, key?: string): Chain => {
       binKey.length * 2,
       sourceResult
     );
+    db?.saveStorageRoot(initialBlock.storageRoot);
     return getNode(initialBlock.storageRoot, binKey, binKey.length * 2)!;
   };
 
@@ -270,6 +302,7 @@ export const createChain = (source: Source, key?: string): Chain => {
       )!;
     });
 
+    if (pending.length) db?.saveStorageRoot(initialBlock.storageRoot);
     return result;
   };
 
@@ -328,8 +361,16 @@ export const createChain = (source: Source, key?: string): Chain => {
         binPrefix,
         binPrefix.length * 2
       )!;
-      rootNode.exhaustive = true;
-      forEachDescendant(rootNode, (node) => (node.exhaustive = true));
+      const exhaustiveNodes: StorageNode[] = rootNode ? [rootNode] : [];
+      if (rootNode) {
+        rootNode.exhaustive = true;
+        forEachDescendant(rootNode, (node) => {
+          node.exhaustive = true;
+          exhaustiveNodes.push(node);
+        });
+      }
+      db?.saveStorageRoot(initialBlock.storageRoot);
+      db?.markExhaustive(exhaustiveNodes);
     }
 
     // There's a temptation to propagate this exhaustive to the blockNode
@@ -414,6 +455,7 @@ export const createChain = (source: Source, key?: string): Chain => {
     });
 
     setBlockMeta(chain, block);
+    db?.saveBlock(block);
 
     // Emit newBlocks$ event
     newBlocks$.next(block.hash);

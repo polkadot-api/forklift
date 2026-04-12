@@ -5,6 +5,7 @@ const log = logger.child({ module: "storage" });
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
+  dbId?: number; // set when persisted to DB; undefined means not yet saved
   hash: Uint8Array;
   children: Array<StorageNode>; // nibble -> node
   value?: Uint8Array | null;

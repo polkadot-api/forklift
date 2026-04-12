@@ -6,6 +6,7 @@ import type {
   DmpMessage,
 } from "./block-builder/create-block";
 import { createChain } from "./chain";
+import { createDb } from "./db";
 import { runPrequeries } from "./prequeries";
 import type { ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
@@ -80,7 +81,8 @@ export function forklift(
     atBlock: sourceDef.value.atBlock,
   });
   let options = { ...defaultOptions, ...opts };
-  const chain = createChain(source, options.key);
+  const db = options.key ? createDb(`forklift_${options.key}.db`) : undefined;
+  const chain = createChain(source, db);
   const txPool = createTxPool(chain);
 
   runPrequeries(chain);
@@ -273,6 +275,7 @@ export function forklift(
       txPoolSub.unsubscribe();
       txPool.destroy();
       source.destroy();
+      db?.close();
     },
   };
 }
