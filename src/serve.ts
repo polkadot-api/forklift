@@ -2,12 +2,10 @@ import type {
   JsonRpcConnection,
   JsonRpcProvider,
 } from "@polkadot-api/substrate-client";
-import { serve, type Serve } from "bun";
+import { type Serve } from "bun";
 import { Subject } from "rxjs";
 import type { Forklift } from "./forklift";
 import { logger } from "./logger";
-
-const log = logger.child({ module: "serve" });
 import {
   chainHead_v1_body,
   chainHead_v1_call,
@@ -37,6 +35,8 @@ import {
   transaction_v1_broadcast,
   transaction_v1_stop,
 } from "./rpc/transaction_v1";
+
+const log = logger.child({ module: "serve" });
 
 export const methods: Record<string, RpcMethod> = {
   chainHead_v1_body,

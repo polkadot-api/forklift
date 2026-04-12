@@ -10,15 +10,13 @@ import {
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
-import { logger } from "../logger";
-
-const log = logger.child({ module: "block-builder" });
 import { getConstant, getStorageCodecs } from "../codecs";
 import {
   getRuntimeVersion,
   runRuntimeCall,
   type RuntimeVersion,
 } from "../executor";
+import { logger } from "../logger";
 import {
   deleteValue,
   getNode,
@@ -29,6 +27,8 @@ import { paraInherentEnterInherent } from "./para-enter";
 import { setValidationDataInherent } from "./set-validation-data";
 import { getCurrentSlot } from "./slot-utils";
 import { timestampInherent } from "./timestamp";
+
+const log = logger.child({ module: "block-builder" });
 
 export interface CreateBlockParams {
   parent: HexString;

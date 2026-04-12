@@ -12,12 +12,12 @@ import {
 import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx-utils";
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
-import { type Block } from "./block-builder/create-block";
+import type { Block } from "./block-builder/create-block";
+import type { Chain } from "./chain";
+import { runRuntimeCall } from "./executor";
 import { logger } from "./logger";
 
 const log = logger.child({ module: "codecs" });
-import type { Chain } from "./chain";
-import { runRuntimeCall } from "./executor";
 
 type DynamicBuilder = ReturnType<typeof getDynamicBuilder>;
 const blockMeta = new WeakMap<

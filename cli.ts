@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 import { program } from "commander";
-import { logger } from "./src/logger";
-import { forklift } from "./src/forklift";
-import { createWsServer } from "./src/serve";
+import { logger, forklift, createWsServer } from "./src/index.ts";
 
 program
   .name("forklift")
