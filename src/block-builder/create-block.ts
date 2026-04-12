@@ -10,6 +10,7 @@ import {
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
+import { getConstant, getStorageCodecs } from "../codecs";
 import {
   getRuntimeVersion,
   runRuntimeCall,
@@ -21,19 +22,16 @@ import {
   insertValue,
   type StorageNode,
 } from "../storage";
-import { timestampInherent } from "./timestamp";
-import { setValidationDataInherent } from "./set-validation-data";
 import { paraInherentEnterInherent } from "./para-enter";
+import { setValidationDataInherent } from "./set-validation-data";
 import { getCurrentSlot } from "./slot-utils";
-import { getConstant, getStorageCodecs } from "../codecs";
+import { timestampInherent } from "./timestamp";
 
 export interface CreateBlockParams {
   parent: HexString;
   unsafeBlockHeight?: number;
   transactions: Uint8Array[];
-  dmp: Uint8Array[];
-  hrmp: Record<number, Uint8Array[]>;
-  ump: Record<number, Uint8Array[]>;
+  xcm: XcmMessages;
   storage: Record<HexString, Uint8Array | null>;
   disableOnIdle: boolean;
 }
@@ -49,6 +47,16 @@ export interface Block {
   body: Uint8Array[];
   hasNewRuntime?: boolean;
   children: HexString[];
+}
+
+export interface DmpMessage {
+  sent_at: number;
+  msg: Uint8Array<ArrayBufferLike>;
+}
+
+export interface XcmMessages {
+  dmp: Array<DmpMessage>;
+  hrmp: Record<number, Uint8Array[]>;
 }
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
@@ -67,7 +75,7 @@ export const createBlock = async (
 
   const extrinsics = [
     await timestampInherent(chain, parent),
-    await setValidationDataInherent(chain, parent),
+    await setValidationDataInherent(chain, parent, params.xcm),
     await paraInherentEnterInherent(chain, parent),
     ...params.transactions,
   ].filter((v) => v !== null);
@@ -185,6 +193,8 @@ const buildBlock = async (
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
     storageOverrides,
   });
+
+  // console.log("init storageDiff", Object.fromEntries(initResponse.storageDiff));
 
   // Apply storage changes
   storageOverrides = {

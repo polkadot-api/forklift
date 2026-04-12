@@ -1,8 +1,9 @@
-import type { JsonRpcConnection } from "@polkadot-api/substrate-client";
+import { Binary, createClient } from "polkadot-api";
 import { forklift } from "./src/forklift";
-import { createClient } from "polkadot-api";
+import { createWsServer } from "./src/serve";
+import { bobSigner } from "./signer";
 
-const fork = forklift(
+const assetHubFork = forklift(
   {
     type: "remote",
     value: {
@@ -10,57 +11,71 @@ const fork = forklift(
     },
   },
   {
-    disableOnIdle: true,
+    key: "ahPas",
   }
 );
+const assetHubServer = createWsServer(assetHubFork);
+console.log("AssetHub listening at", assetHubServer.port);
 
-// const client = createClient(fork.serve);
-// const finalized = await client.getFinalizedBlock();
-
-// await fork.newBlock({
-//   unsafeBlockHeight: finalized.number + 2,
-// });
-
-const server = Bun.serve({
-  fetch(req, server) {
-    const success = server.upgrade(req, { data: {} as any });
-    if (success) {
-      // Bun automatically returns a 101 Switching Protocols
-      // if the upgrade succeeds
-      return undefined;
-    }
-
-    // handle HTTP request normally
-    return new Response("Nothing to see here, move along");
-  },
-  websocket: {
-    data: {} as {
-      connection: JsonRpcConnection;
-    },
-    // this is called when a message is received
-    async message(ws, message) {
-      try {
-        if (typeof message !== "string") throw null;
-        ws.data.connection.send(JSON.parse(message));
-      } catch {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32700,
-              message: "Unable to parse message",
-            },
-          })
-        );
-      }
-    },
-    open(ws) {
-      ws.data.connection = fork.serve((msg) => ws.send(JSON.stringify(msg)));
-    },
-    close(ws) {
-      ws.data.connection.disconnect();
+const bridgeHubFork = forklift(
+  {
+    type: "remote",
+    value: {
+      url: "wss://bridge-hub-paseo.ibp.network",
     },
   },
+  {
+    key: "bhPas",
+  }
+);
+const bridgeHubServer = createWsServer(bridgeHubFork);
+console.log("BridgeHub listening at", bridgeHubServer.port);
+
+const assetHubClient = createClient(assetHubFork.serve);
+await assetHubFork.setStorage((await assetHubClient.getFinalizedBlock()).hash, {
+  ["0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da94f9aea1afa791265fae359272badc1cf8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48"]:
+    Binary.fromHex(
+      "0x000000000000000001000000000000000010a5d4e80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080"
+    ),
 });
 
-console.log("listening on port", server.port);
+const parachainClient = createClient(assetHubFork.serve);
+await parachainClient._request("forklift_xcm_attach_sibling", [
+  `ws://localhost:${bridgeHubServer.port}`,
+]);
+
+// // DMP
+// try {
+//   const tx = await relayClient
+//     .getUnsafeApi()
+//     .txFromCallData(Binary.fromHex("0x630004000100a10f04040a"));
+//   const txResult = await tx.signAndSubmit(bobSigner);
+//   console.log("Tx finished", txResult);
+// } catch {}
+
+// // UMP
+// try {
+//   const tx = await parachainClient
+//     .getUnsafeApi()
+//     .txFromCallData(
+//       Binary.fromHex(
+//         "0x1f0905010005000101008eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48050401000002286bee0000000000"
+//       )
+//     );
+//   // .txFromCallData(Binary.fromHex("0x1f0004010004040a"));
+//   const txResult = await tx.signAndSubmit(bobSigner);
+//   console.log("Tx finished", txResult);
+// } catch {}
+
+// HRMP
+try {
+  const tx = await assetHubClient
+    .getUnsafeApi()
+    .txFromCallData(
+      Binary.fromHex(
+        "0x1f0905010100a90f05000101008eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48050401000002286bee0000000000"
+      )
+    );
+  const txResult = await tx.signAndSubmit(bobSigner);
+  console.log("Tx finished", txResult);
+} catch {}

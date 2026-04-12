@@ -1,8 +1,12 @@
 import { create_proof, decode_proof } from "@acala-network/chopsticks-executor";
 import {
   Blake2256,
+  Bytes,
+  Option,
+  Struct,
   Twox128,
   Twox64Concat,
+  Vector,
   blockHeader,
   compact,
   u32,
@@ -18,7 +22,7 @@ import {
   getTxCodec,
   unsignedExtrinsic,
 } from "../codecs";
-import type { Block } from "./create-block";
+import type { Block, XcmMessages } from "./create-block";
 import {
   getCurrentSlot,
   getSlotDuration,
@@ -37,6 +41,42 @@ const storagePrefix = (pallet: string, storage: string): HexString =>
       Twox128(textEncoder.encode(storage)),
     ])
   ) as HexString;
+
+const DMP_QUEUE_HEADS_KEY = storagePrefix("Dmp", "DownwardMessageQueueHeads");
+const HRMP_INGRESS_INDEX_KEY = storagePrefix(
+  "Hrmp",
+  "HrmpIngressChannelsIndex"
+);
+const HRMP_EGRESS_INDEX_KEY = storagePrefix("Hrmp", "HrmpEgressChannelsIndex");
+const HRMP_CHANNELS_KEY = storagePrefix("Hrmp", "HrmpChannels");
+
+const appendParaId = (key: HexString, paraId: number) =>
+  Binary.toHex(
+    mergeUint8([Binary.fromHex(key), Twox64Concat(u32.enc(paraId))])
+  ) as HexString;
+
+const hrmpIngressIndexKey = (receiverParaId: number): HexString =>
+  appendParaId(HRMP_INGRESS_INDEX_KEY, receiverParaId);
+
+const hrmpEgressIndexKey = (senderParaId: number): HexString =>
+  appendParaId(HRMP_EGRESS_INDEX_KEY, senderParaId);
+
+const hrmpChannelKey = (sender: number, receiver: number): HexString =>
+  Binary.toHex(
+    mergeUint8([
+      Binary.fromHex(HRMP_CHANNELS_KEY),
+      Twox64Concat(mergeUint8([u32.enc(sender), u32.enc(receiver)])),
+    ])
+  ) as HexString;
+
+const DEFAULT_CHANNEL = {
+  max_capacity: 1000,
+  max_total_size: 102400,
+  max_message_size: 102400,
+  msg_count: 0,
+  total_size: 0,
+  mqc_head: undefined as Uint8Array | undefined,
+};
 
 const BABE_CURRENT_SLOT_KEY = storagePrefix("Babe", "CurrentSlot");
 
@@ -69,7 +109,8 @@ const encodeHeadData = (header: Uint8Array): Uint8Array => {
 
 export const setValidationDataInherent = async (
   chain: Chain,
-  parentBlock: Block
+  parentBlock: Block,
+  xcm: XcmMessages
 ) => {
   if (
     !parentBlock.header.digests.some(
@@ -102,7 +143,7 @@ export const setValidationDataInherent = async (
   }
 
   // Get parachain ID from runtime constant
-  const paraId: number = await getConstant(
+  const paraId: number | null = await getConstant(
     parentBlock,
     "ParachainSystem",
     "SelfParaId"
@@ -172,6 +213,111 @@ export const setValidationDataInherent = async (
     Binary.toHex(headData) as HexString,
   ]);
 
+  const dmpHashKey = appendParaId(DMP_QUEUE_HEADS_KEY, paraId);
+  let dmpHash = Binary.fromHex(
+    decodedProof.get(dmpHashKey) ??
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+  );
+  for (const { msg, sent_at } of xcm.dmp) {
+    dmpHash = Blake2256(
+      mqcChain.enc({
+        hash: dmpHash,
+        sent_at,
+        msg_hash: Blake2256(Binary.toOpaque(msg)),
+      })
+    );
+  }
+  newEntries.push([dmpHashKey, Binary.toHex(dmpHash)]);
+
+  // Preserve existing HRMP egress channel entries from the original proof, and inject
+  // any manually registered channels. The runtime checks these to know which outbound
+  // channels are open before queuing messages.
+  const egressIndexHex = decodedProof.get(hrmpEgressIndexKey(paraId));
+  const existingEgressRecipients = egressIndexHex
+    ? vecU32.dec(Binary.fromHex(egressIndexHex))
+    : [];
+  const allEgressRecipients = [
+    ...new Set([...existingEgressRecipients, ...chain.hrmpChannels]),
+  ].sort((a, b) => a - b);
+
+  if (allEgressRecipients.length > 0) {
+    newEntries.push([
+      hrmpEgressIndexKey(paraId),
+      Binary.toHex(vecU32.enc(allEgressRecipients)),
+    ]);
+
+    for (const recipientId of allEgressRecipients) {
+      const chKey = hrmpChannelKey(paraId, recipientId);
+
+      const existingHex = decodedProof.get(chKey);
+      if (existingHex) {
+        newEntries.push([chKey, existingHex]);
+      } else {
+        newEntries.push([
+          chKey,
+          Binary.toHex(AbridgedHrmpChannelCodec.enc(DEFAULT_CHANNEL)),
+        ]);
+      }
+    }
+  }
+
+  const nextRelayNumber =
+    Number(prevValidationData.validation_data.relay_parent_number) +
+    Number(relaySlotIncrease);
+
+  const ingressIndexHex = decodedProof.get(hrmpIngressIndexKey(paraId));
+  const existingIngressRecipients = ingressIndexHex
+    ? vecU32.dec(Binary.fromHex(ingressIndexHex))
+    : [];
+  const allIngressSenders = [
+    ...new Set([...existingIngressRecipients, ...chain.hrmpChannels]),
+  ].sort((a, b) => a - b);
+
+  if (allIngressSenders.length > 0)
+    newEntries.push([
+      hrmpIngressIndexKey(paraId),
+      Binary.toHex(vecU32.enc(allIngressSenders)),
+    ]);
+
+  // Update HrmpChannels for each sender: compute new MQC head
+  for (const senderId of allIngressSenders) {
+    const chKey = hrmpChannelKey(senderId, paraId);
+    const existingHex = decodedProof.get(chKey);
+    const ch = existingHex
+      ? AbridgedHrmpChannelCodec.dec(existingHex)
+      : { ...DEFAULT_CHANNEL };
+
+    const hrmpMessages = xcm.hrmp[senderId];
+
+    if (hrmpMessages) {
+      let mqcHead = ch.mqc_head ?? new Uint8Array(32);
+      let totalSize = ch.total_size;
+      for (const data of hrmpMessages) {
+        mqcHead = Blake2256(
+          mqcChain.enc({
+            hash: mqcHead,
+            sent_at: nextRelayNumber,
+            msg_hash: Blake2256(Binary.toOpaque(data)),
+          })
+        );
+        totalSize += data.length;
+      }
+      newEntries.push([
+        chKey,
+        Binary.toHex(
+          AbridgedHrmpChannelCodec.enc({
+            ...ch,
+            msg_count: ch.msg_count + hrmpMessages.length,
+            total_size: totalSize,
+            mqc_head: mqcHead,
+          })
+        ),
+      ]);
+    } else {
+      newEntries.push([chKey, Binary.toHex(AbridgedHrmpChannelCodec.enc(ch))]);
+    }
+  }
+
   // Create updated proof with all entries
   const [newStateRoot, newNodes]: [HexString, HexString[]] = await create_proof(
     existingNodes,
@@ -216,9 +362,7 @@ export const setValidationDataInherent = async (
     ...prevValidationData,
     validation_data: {
       ...prevValidationData.validation_data,
-      relay_parent_number:
-        Number(prevValidationData.validation_data.relay_parent_number) +
-        Number(relaySlotIncrease),
+      relay_parent_number: nextRelayNumber,
       relay_parent_storage_root: newStateRoot,
     },
     relay_chain_state: newNodes.map((node) => Binary.fromHex(node)),
@@ -227,11 +371,19 @@ export const setValidationDataInherent = async (
 
   const inbound_messages_data = {
     downward_messages: {
-      full_messages: [],
+      full_messages: xcm.dmp,
       hashed_messages: [],
     },
     horizontal_messages: {
-      full_messages: [],
+      full_messages: allIngressSenders.flatMap((senderId) =>
+        (xcm.hrmp[senderId] ?? []).map((data) => [
+          senderId,
+          {
+            sent_at: nextRelayNumber,
+            data,
+          },
+        ])
+      ),
       hashed_messages: [],
     },
   };
@@ -247,3 +399,19 @@ export const setValidationDataInherent = async (
   );
   return unsignedExtrinsic(callData!);
 };
+
+const mqcChain = Struct({
+  hash: Bytes(32),
+  sent_at: u32,
+  msg_hash: Bytes(32),
+});
+
+const vecU32 = Vector(u32);
+const AbridgedHrmpChannelCodec = Struct({
+  max_capacity: u32,
+  max_total_size: u32,
+  max_message_size: u32,
+  msg_count: u32,
+  total_size: u32,
+  mqc_head: Option(Bytes(32)),
+});

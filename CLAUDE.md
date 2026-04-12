@@ -118,6 +118,10 @@ interface Chain {
   ): Promise<
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
+
+  // HRMP: open egress channels injected into the relay proof every block
+  hrmpChannels: Set<number>; // recipient para IDs
+  openHrmpChannel(recipientParaId: number): void;
 }
 ```
 
@@ -137,6 +141,7 @@ interface Chain {
 - `getBlock` provides synchronous access to loaded blocks
 - `getStorageDiff` compares against parent by default, or a specified `baseHash`
 - No block pruning — forklift is for short-lived test scenarios, not long-running nodes
+- `hrmpChannels` holds para IDs that this chain has open outbound HRMP channels to; injected into `set_validation_data` relay proof every block so the runtime allows outbound XCM
 
 **`finalizedAndPruned$`** is a helper observable exported from chain.ts that emits `{ finalized: HexString[], pruned: HexString[] }` whenever finalization advances, used by chainHead_v1_follow.
 
@@ -211,9 +216,18 @@ interface ForkliftOptions {
 - `parent` — which block to build on (enables forking)
 - `unsafeBlockHeight` — override block height
 - `transactions` — extrinsics to include
-- `dmp`, `hrmp`, `ump` — parachain messages
+- `xcm.dmp` — DMP messages (`Array<{ sent_at, msg }>`) to inject via `set_validation_data`
+- `xcm.hrmp` — HRMP messages (`Record<senderId, Uint8Array[]>`) to inject via `set_validation_data`
 - `storage` — storage overrides
 - `disableOnIdle` — skip on_idle hooks during block finalization
+
+**XCM message queues** in `forklift.ts`:
+
+- `dmpSubject` / `dmpMsgQueue` — DMP messages accumulate and flush per block
+- `umpSubject` / `umpMsgQueues` — UMP messages accumulate per paraId; flushed via `pushUmp()` before each block
+- `hrmpSubject` / `hrmpMsgQueues` — HRMP messages accumulate per senderId; flushed per block
+- All three subjects also trigger auto block production when messages arrive
+- On block build failure, queued messages are restored
 
 ### Transaction Pool (`src/txPool.ts`)
 
@@ -298,11 +312,17 @@ const createServer = (ctx: ServerContext): JsonRpcProvider
 | `chainSpec_v1_chainName`     | chainSpec_v1.ts   |
 | `chainSpec_v1_genesisHash`   | chainSpec_v1.ts   |
 | `chainSpec_v1_properties`    | chainSpec_v1.ts   |
-| `transaction_v1_broadcast`   | transaction_v1.ts |
-| `transaction_v1_stop`        | transaction_v1.ts |
-| `dev_newBlock`               | dev.ts            |
-| `dev_setStorage`             | dev.ts            |
-| `rpc_methods`                | serve.ts (inline) |
+| `transaction_v1_broadcast`        | transaction_v1.ts  |
+| `transaction_v1_stop`             | transaction_v1.ts  |
+| `dev_newBlock`                    | dev.ts             |
+| `dev_setStorage`                  | dev.ts             |
+| `forklift_xcm_attach_relay`       | forklift_xcm.ts    |
+| `forklift_xcm_attach_sibling`     | forklift_xcm.ts    |
+| `forklift_xcm_consume_dmp`        | forklift_xcm.ts    |
+| `forklift_xcm_push_ump`           | forklift_xcm.ts    |
+| `forklift_xcm_push_hrmp`          | forklift_xcm.ts    |
+| `forklift_xcm_open_hrmp_channel`  | forklift_xcm.ts    |
+| `rpc_methods`                     | serve.ts (inline)  |
 
 **Design decisions:**
 
@@ -385,8 +405,13 @@ Storage changes accumulate in `storageOverrides` across all runtime calls.
 - Extracts previous validation data from parent block's body
 - Injects parent header into relay chain proof as `Paras::Heads(paraId)` to signal block inclusion
 - Uses chopsticks-executor's `decode_proof`/`create_proof` for Merkle trie manipulation
-- Preserves `PRESERVE_PROOFS` (EPOCH_INDEX, AUTHORITIES, etc.) from existing proof
+- Preserves `PRESERVE_PROOFS` (BABE epoch/slot/randomness, Configuration.ActiveConfig) from existing proof
 - Updates `relay_parent_descendants` headers to maintain chain integrity after state root change
+- **DMP**: updates `Dmp::DownwardMessageQueueHeads(paraId)` MQC hash for each injected DMP message; passes messages in `inbound_messages_data.downward_messages.full_messages`
+- **HRMP ingress**: updates `Hrmp::HrmpIngressChannelsIndex(paraId)` and `Hrmp::HrmpChannels(sender, paraId)` MQC head for each injected message; passes messages in `inbound_messages_data.horizontal_messages.full_messages`
+- **HRMP egress**: injects `Hrmp::HrmpEgressChannelsIndex(paraId)` and `Hrmp::HrmpChannels(paraId, recipient)` entries for all `chain.hrmpChannels`; if a channel isn't in the original proof a `DEFAULT_CHANNEL` entry is synthesised so the runtime allows outbound XCM
+- MQC hash formula (same for DMP and HRMP): `Blake2256(encode({ prev_head, sent_at, msg_hash: Blake2256(Binary.toOpaque(data)) }))`
+- Storage keys use `Twox64Concat` for para IDs; HRMP channel key uses `Twox64Concat(u32(sender) ++ u32(receiver))`
 
 **`para-enter.ts`**
 
@@ -404,6 +429,39 @@ Storage changes accumulate in `storageOverrides` across all runtime calls.
 - `getSlotDuration` — checks BABE, AsyncBacking, or AURA slot duration constants
 - `getCurrentTimestamp` — reads `Timestamp.Now` storage with fallback to `Date.now()`
 - `runtimeBlockHeader` — codec for the runtime-native block header format (used in SCALE encoding for runtime calls)
+
+### XCM (`src/xcm.ts`)
+
+Cross-chain message passing between forklift instances. Three transports are supported.
+
+**DMP (Downward Message Passing — relay → parachain)**
+
+`attachRelay(relayClient, parachainClient, chain, xcm)` wires a parachain to a relay chain forklift:
+
+- Watches `Dmp.DownwardMessageQueues(paraId)` on the relay; new messages are pushed via `xcm.pushDmp` and consumed on the relay via `forklift_xcm_consume_dmp` (because forklift's fake `ParaInherent.enter` doesn't drain them automatically)
+- Watches `ParachainSystem.UpwardMessages` on the parachain; pushes to relay via `forklift_xcm_push_ump`
+
+**UMP (Upward Message Passing — parachain → relay)**
+
+`pushUmp(chain, paraId, messages)` writes directly into the relay chain's `MessageQueue` pallet storage:
+
+- Writes a new `MessageQueue.Pages` entry with a heap of messages (`[u32 length | high bit = is_processed][payload]` per message)
+- Writes/updates `MessageQueue.BookStateFor(Ump(Para(paraId)))`
+- "Jumps the queue": sets `MessageQueue.ServiceHead` to this origin, fixing `ready_neighbours` of both the new book and the existing head
+- Applied to finalized block and all its descendants so no message is lost on reorgs
+- Processed by `MessageQueue` during `on_idle` — do **not** use `disableOnIdle` on the relay chain if you want UMP messages executed in the same block
+
+**HRMP (Horizontal Relay-routed Message Passing — parachain → parachain)**
+
+Direct para-to-para without relay chain involvement:
+
+`attachSibling(siblingClient, selfClient, chain, xcm)` sets up bidirectional watching:
+
+- Calls `chain.openHrmpChannel(siblingParaId)` locally and `forklift_xcm_open_hrmp_channel(selfParaId)` on the sibling — both sides get the channel in their relay proof from the next block onwards
+- **Sibling → Self**: watches `ParachainSystem.HrmpOutboundMessages` on the sibling, filters by `recipient === selfParaId`, pushes via `xcm.pushHrmp(siblingParaId, messages)`
+- **Self → Sibling**: watches `ParachainSystem.HrmpOutboundMessages` on self, filters by `recipient === siblingParaId`, pushes to sibling via `forklift_xcm_push_hrmp(selfParaId, messages)`
+- `HrmpOutboundMessages` is automatically cleared by `ParachainSystem::on_initialize` at the start of each new block — no manual consume needed
+- Messages are processed by `MessageQueue` during `on_idle` on the receiving chain — do **not** use `disableOnIdle` if you want HRMP executed in the same block
 
 ### Dev RPC (`src/rpc/dev.ts`)
 
@@ -467,6 +525,9 @@ forklift <url> [options]
 - [x] `disableOnIdle` option to skip on_idle hooks during block production
 - [x] AURA and BABE digest slot handling
 - [x] CLI (`cli.ts`) — `forklift <url>` command via `commander`
+- [x] XCM DMP (relay → parachain) via `forklift_xcm_attach_relay` / `forklift_xcm_consume_dmp`
+- [x] XCM UMP (parachain → relay) via `forklift_xcm_push_ump` — writes to `MessageQueue` pallet directly
+- [x] XCM HRMP (parachain ↔ parachain) via `forklift_xcm_attach_sibling` / `forklift_xcm_open_hrmp_channel` / `forklift_xcm_push_hrmp`
 - [ ] `chainHead_v1_storage` child trie support
 - [ ] `chainHead_v1_storage` pagination
 

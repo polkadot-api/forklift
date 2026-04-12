@@ -1,11 +1,14 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
-import { combineLatest, firstValueFrom } from "rxjs";
+import { combineLatest, firstValueFrom, merge, Subject } from "rxjs";
+import type { DmpMessage } from "./block-builder/create-block";
 import { createChain, type NewBlockOptions } from "./chain";
 import { runPrequeries } from "./prequeries";
+import type { ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
+import { pushUmp } from "./xcm";
 
 export interface Forklift {
   serve: JsonRpcProvider;
@@ -46,6 +49,7 @@ export interface ForkliftOptions {
   finalizeMode: DelayMode;
   disableOnIdle?: boolean;
   mockSignatureHost?: (signature: Uint8Array) => boolean;
+  key?: string;
 }
 
 const defaultOptions: ForkliftOptions = {
@@ -62,16 +66,43 @@ export function forklift(
     atBlock: sourceDef.value.atBlock,
   });
   let options = { ...defaultOptions, ...opts };
-  const chain = createChain(source);
+  const chain = createChain(source, options.key);
   const txPool = createTxPool(chain);
 
   runPrequeries(chain);
+
+  const dmpSubject = new Subject<Array<DmpMessage>>();
+  let dmpMsgQueue: DmpMessage[] = [];
+  const dmpSub = dmpSubject.subscribe((messages) => {
+    dmpMsgQueue = [...dmpMsgQueue, ...messages];
+  });
+
+  const umpSubject = new Subject<{ paraId: number; messages: Uint8Array[] }>();
+  let umpMsgQueues: Record<number, Uint8Array[]> = {};
+  const umpSub = umpSubject.subscribe((msg) => {
+    umpMsgQueues = {
+      ...umpMsgQueues,
+      [msg.paraId]: [...(umpMsgQueues[msg.paraId] ?? []), ...msg.messages],
+    };
+  });
+
+  const hrmpSubject = new Subject<{
+    paraId: number;
+    messages: Uint8Array[];
+  }>();
+  let hrmpMsgQueues: Record<number, Uint8Array[]> = {};
+  const hrmpSub = hrmpSubject.subscribe(({ paraId, messages }) => {
+    hrmpMsgQueues = {
+      ...hrmpMsgQueues,
+      [paraId]: [...(hrmpMsgQueues[paraId] ?? []), ...messages],
+    };
+  });
 
   let buildBlockQueue: Promise<void> | null = null;
   let blocksEnqueued = 0;
   const finalizeTimers = new Set<Timeout>();
   const newBlock = async (
-    opts?: Partial<NewBlockOptions>,
+    opts?: Partial<Omit<NewBlockOptions, "xcm">>,
     automatic?: boolean
   ) => {
     if (buildBlockQueue) {
@@ -84,6 +115,20 @@ export function forklift(
 
     let resolve: () => void = () => {};
     buildBlockQueue = new Promise<void>(async (res) => (resolve = res));
+
+    const dmp = dmpMsgQueue;
+    dmpMsgQueue = [];
+
+    const ump = umpMsgQueues;
+    umpMsgQueues = {};
+    for (const paraId in ump) {
+      // This sets the storage of all live blocks, as technically any block being
+      // produced past finalized should have these messages
+      await pushUmp(chain, Number(paraId), ump[paraId]!);
+    }
+
+    const hrmp = hrmpMsgQueues;
+    hrmpMsgQueues = {};
 
     try {
       const type =
@@ -98,7 +143,14 @@ export function forklift(
       const transactions =
         opts?.transactions ?? (await txPool.getTxsForBlock(parentBlock));
       // An automatic trigger from tx pool should not produce the block if the block won't have any tx
-      if (automatic && transactions.length === 0) {
+      if (
+        automatic &&
+        transactions.length +
+          dmp.length +
+          Object.keys(ump).length +
+          Object.keys(hrmp).length ===
+          0
+      ) {
         console.log(
           "Skipped building automatic block: none of the transactions are ready"
         );
@@ -110,6 +162,7 @@ export function forklift(
         parent,
         transactions,
         disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle,
+        xcm: { dmp, hrmp },
       });
 
       if (type == null) {
@@ -134,6 +187,16 @@ export function forklift(
       }
 
       return block.hash;
+    } catch (ex) {
+      // Restore messages that were dequeued but couldn't be processed
+      dmpMsgQueue = [...dmp, ...dmpMsgQueue];
+      for (const senderId in hrmp) {
+        hrmpMsgQueues[senderId] = [
+          ...(hrmp[senderId] ?? []),
+          ...(hrmpMsgQueues[senderId] ?? []),
+        ];
+      }
+      throw ex;
     } finally {
       buildBlockQueue = null;
       resolve();
@@ -141,7 +204,12 @@ export function forklift(
   };
 
   let txBlockPending = false;
-  const txPoolSub = txPool.txAdded$.subscribe(() => {
+  const txPoolSub = merge(
+    txPool.txAdded$,
+    dmpSubject,
+    umpSubject,
+    hrmpSubject
+  ).subscribe(() => {
     if (options.buildBlockMode.type === "manual") return;
     if (txBlockPending || blocksEnqueued) {
       // Another tx has triggered a new block, this will get included
@@ -159,8 +227,14 @@ export function forklift(
     }, delay);
   });
 
+  const xcm: ServerContext["xcm"] = {
+    pushDmp: (messages) => dmpSubject.next(messages),
+    pushUmp: (paraId, messages) => umpSubject.next({ paraId, messages }),
+    pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
+  };
+
   return {
-    serve: createServer({ source, chain, txPool, newBlock }),
+    serve: createServer({ source, chain, txPool, newBlock, xcm }),
     newBlock: (opts) => newBlock(opts),
     changeBest: async (hash) => chain.changeBest(hash),
     changeFinalized: async (hash) => {
@@ -175,6 +249,9 @@ export function forklift(
       options = { ...options, ...opts };
     },
     destroy() {
+      dmpSub.unsubscribe();
+      umpSub.unsubscribe();
+      hrmpSub.unsubscribe();
       txPoolSub.unsubscribe();
       txPool.destroy();
       source.destroy();
