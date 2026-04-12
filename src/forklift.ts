@@ -11,7 +11,10 @@ import type { ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
+import { logger } from "./logger";
 import { pushUmp } from "./xcm";
+
+const log = logger.child({ module: "forklift" });
 
 export interface NewBlockOptions {
   type: "best" | "finalized" | "fork";
@@ -163,11 +166,11 @@ export function forklift(
           Object.keys(hrmp).length ===
           0
       ) {
-        console.log(
-          "Skipped building automatic block: none of the transactions are ready"
-        );
+        log.debug("skipped automatic block: no transactions ready");
         return parent;
       }
+
+      logger.info("creating block");
       const block = await chain.newBlock(type ?? "fork", {
         parent,
         transactions,
@@ -176,6 +179,7 @@ export function forklift(
         storage: opts?.storage ?? {},
         unsafeBlockHeight: opts?.unsafeBlockHeight,
       });
+      logger.info(`block ${block.hash} created`);
 
       if (type == null) {
         // best changes immediately if it became higher
@@ -200,6 +204,8 @@ export function forklift(
 
       return block.hash;
     } catch (ex) {
+      logger.error(ex, "failed creating block");
+
       // Restore messages that were dequeued but couldn't be processed
       dmpMsgQueue = [...dmp, ...dmpMsgQueue];
       for (const senderId in hrmp) {

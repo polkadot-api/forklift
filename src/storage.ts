@@ -1,4 +1,7 @@
 import { Binary, Blake2128 } from "@polkadot-api/substrate-bindings";
+import { logger } from "./logger";
+
+const log = logger.child({ module: "storage" });
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
@@ -161,7 +164,7 @@ export const getNode = (
     Binary.toHex(key) ===
       "0x26aa394eea5630e07c48ae0c9558cef734abf5cb34d6244378cddbf18e849d96"
   ) {
-    console.log("Block.Weight requested");
+    log.debug("Block.Weight requested");
   }
 
   if (offset === nibbles) return root;

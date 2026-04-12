@@ -2,6 +2,9 @@ import { Binary, createClient, type HexString } from "polkadot-api";
 import { createWsClient } from "polkadot-api/ws";
 import { attachRelay, attachSibling, consumeDmp } from "../xcm";
 import { errorResponse, getParams, respond, type RpcMethod } from "./rpc_utils";
+import { logger } from "../logger";
+
+const log = logger.child({ module: "forklift_xcm" });
 
 /*** Para -> Relay ***/
 
@@ -27,7 +30,7 @@ export const forklift_xcm_attach_relay: RpcMethod<{ url: string }> = async (
 
     con.send(respond(req, null));
   } catch (ex: any) {
-    console.error(ex);
+    log.error(ex, "attach_relay failed");
     con.send(
       errorResponse(req, {
         code: -1,
@@ -59,7 +62,7 @@ export const forklift_xcm_attach_sibling: RpcMethod<{ url: string }> = async (
 
     con.send(respond(req, null));
   } catch (ex: any) {
-    console.error(ex);
+    log.error(ex, "attach_sibling failed");
     con.send(
       errorResponse(req, {
         code: -1,
@@ -85,7 +88,7 @@ export const forklift_xcm_consume_dmp: RpcMethod<{
     await consumeDmp(chain, hash, paraId);
     con.send(respond(req, null));
   } catch (ex: any) {
-    console.error("forklift_xcm_consume_dmp", ex);
+    log.error(ex, "consume_dmp failed");
 
     con.send(
       errorResponse(req, {
@@ -109,7 +112,7 @@ export const forklift_xcm_push_hrmp: RpcMethod<{
     xcm.pushHrmp(senderId, messages.map(Binary.fromHex));
     con.send(respond(req, null));
   } catch (ex: any) {
-    console.error("forklift_xcm_push_hrmp", ex);
+    log.error(ex, "push_hrmp failed");
     con.send(errorResponse(req, { code: -1, message: ex.message }));
   }
 };
@@ -140,7 +143,7 @@ export const forklift_xcm_push_ump: RpcMethod<{
     xcm.pushUmp(paraId, messages.map(Binary.fromHex));
     con.send(respond(req, null));
   } catch (ex: any) {
-    console.error("forklift_xcm_push_ump", ex);
+    log.error(ex, "push_ump failed");
 
     con.send(
       errorResponse(req, {

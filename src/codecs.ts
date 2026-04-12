@@ -13,6 +13,9 @@ import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import { type Block } from "./block-builder/create-block";
+import { logger } from "./logger";
+
+const log = logger.child({ module: "codecs" });
 import type { Chain } from "./chain";
 import { runRuntimeCall } from "./executor";
 
@@ -140,7 +143,7 @@ export const getCallData = async (
 
     return mergeUint8([new Uint8Array(location), codec.enc(params)]);
   } catch (ex) {
-    console.error(ex);
+    log.error(ex, "getCallData failed");
     return null;
   }
 };

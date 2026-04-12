@@ -5,6 +5,9 @@ import type {
 import { serve, type Serve } from "bun";
 import { Subject } from "rxjs";
 import type { Forklift } from "./forklift";
+import { logger } from "./logger";
+
+const log = logger.child({ module: "serve" });
 import {
   chainHead_v1_body,
   chainHead_v1_call,
@@ -87,7 +90,7 @@ export const createServer = (
         if (method) {
           method(con, req, { ...ctx, provider });
         } else {
-          console.log(req);
+          log.warn({ method: req.method }, "unknown RPC method");
           send({
             jsonrpc: "2.0",
             id: req.id!,

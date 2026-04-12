@@ -16,7 +16,10 @@ import {
 } from "./block-builder/create-block";
 import { setBlockMeta } from "./codecs";
 import { getRuntimeVersion } from "./executor";
+import { logger } from "./logger";
 import type { Source } from "./source";
+
+const log = logger.child({ module: "chain" });
 import {
   createRoot,
   deleteValue,
@@ -85,7 +88,7 @@ export const createChain = (source: Source, key?: string): Chain => {
 
   // Create the initial block from the source
   const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
-    console.log("Loading code");
+    log.debug("loading code");
     const code =
       cacheFile && (await file(cacheFile).exists())
         ? await file(cacheFile).bytes()
@@ -96,9 +99,9 @@ export const createChain = (source: Source, key?: string): Chain => {
     }
     if (cacheFile) file(cacheFile).write(code);
 
-    console.log("Code loaded, getting runtime");
+    log.debug("code loaded, getting runtime");
     const initialRuntime = await getRuntimeVersion(code);
-    console.log("Runtime loaded");
+    log.debug("runtime loaded");
 
     const result: Block = {
       hash: block.blockHash,

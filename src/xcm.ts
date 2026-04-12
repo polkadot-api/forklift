@@ -19,6 +19,9 @@ import type { DmpMessage } from "./block-builder/create-block";
 import type { Chain } from "./chain";
 import { getConstant, getStorageCodecs } from "./codecs";
 import { getNode, insertValue } from "./storage";
+import { logger } from "./logger";
+
+const log = logger.child({ module: "xcm" });
 
 /**
  * Attaches the current forklift as a parachain to a forklift relay chain.
@@ -61,7 +64,7 @@ export const attachRelay = async (
     throw new Error("UpwardMessageQueue incompatible");
   }
 
-  console.log("watching dmp queue");
+  log.debug("watching dmp queue");
   let lastSentAt = 0;
   typedApi.query.Dmp.DownwardMessageQueues.watchValue(paraId)
     .pipe(
@@ -80,7 +83,7 @@ export const attachRelay = async (
       xcm.pushDmp(messages);
     });
 
-  console.log("watching ump queue");
+  log.debug("watching ump queue");
   parachainClient.finalizedBlock$
     .pipe(
       concatMapEager((block) =>
@@ -90,7 +93,7 @@ export const attachRelay = async (
           })
         ).pipe(
           catchError((ex) => {
-            console.error("Error reading upward messages", ex);
+            log.error(ex, "error reading upward messages");
             return [];
           })
         )
@@ -176,9 +179,7 @@ export const consumeDmp = async (
     );
   }
 
-  console.log(
-    `Cleared ${targetDmq.length} DMP messages for parachain ${paraId}`
-  );
+  log.info({ paraId, count: targetDmq.length }, "cleared DMP messages");
 };
 
 export const pushUmp = async (
@@ -348,9 +349,7 @@ export const attachSibling = async (
 
   const siblingParaId: number =
     await siblingApi.constants.ParachainSystem.SelfParaId();
-  console.log(
-    `Attaching HRMP: self=${selfParaId} <-> sibling=${siblingParaId}`
-  );
+  log.info({ selfParaId, siblingParaId }, "attaching HRMP channel");
 
   // Open egress channels on both sides so each chain's relay proof includes the channel.
   chain.openHrmpChannel(siblingParaId);
@@ -366,7 +365,7 @@ export const attachSibling = async (
           })
         ).pipe(
           catchError((ex) => {
-            console.error("Error reading sibling HRMP outbound messages", ex);
+            log.error(ex, "error reading sibling HRMP outbound messages");
             return [];
           })
         )
@@ -392,7 +391,7 @@ export const attachSibling = async (
           })
         ).pipe(
           catchError((ex) => {
-            console.error("Error reading self HRMP outbound messages", ex);
+            log.error(ex, "error reading self HRMP outbound messages");
             return [];
           })
         )

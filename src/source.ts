@@ -1,3 +1,4 @@
+import { blockHeader } from "@polkadot-api/substrate-bindings";
 import {
   createClient,
   type ChainSpecData,
@@ -5,7 +6,7 @@ import {
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
 import { Binary, type BlockHeader, type HexString } from "polkadot-api";
-import { blockHeader } from "@polkadot-api/substrate-bindings";
+import { logger } from "./logger";
 
 export interface Source {
   block: Promise<{
@@ -31,25 +32,29 @@ export interface Source {
   destroy(): void;
 }
 
-// const queries = new Array<string>();
-// const descendants = new Array<string>();
-// setInterval(() => {
-//   queries.sort();
-//   console.log(JSON.stringify({ queries, descendants }));
-// }, 5000);
-
 export const createRemoteSource = (
   url: string | string[],
   options: {
     atBlock?: number | string;
   } = {}
 ): Source => {
+  const log = logger.child({ module: "remote-source" });
+
   const substrateClient = createClient(
     getWsProvider(url, {
       middleware,
       logger: (evt) => {
-        if (evt.type !== SocketEvents.IN && evt.type !== SocketEvents.OUT)
-          console.log(evt);
+        switch (evt.type) {
+          case SocketEvents.CONNECTING:
+            return log.info({ url: evt.url }, evt.type);
+          case SocketEvents.ERROR:
+            return log.error({ error: evt.error }, evt.type);
+          case SocketEvents.IN:
+          case SocketEvents.OUT:
+            return log.trace({ msg: evt.msg }, evt.type);
+          default:
+            return log.info(evt.type);
+        }
       },
     })
   );
@@ -86,14 +91,18 @@ export const createRemoteSource = (
       }
 
       // Fetch and decode the header
-      console.log(`Loading block ${blockHash}`);
+      log.debug({ blockHash }, "loading block");
       const headerHex = await archive.header(blockHash);
       const header = blockHeader.dec(Binary.fromHex(headerHex));
 
       const body = await archive.body(blockHash);
 
-      resolve({ blockHash, header, body: body.map(Binary.fromHex) });
+      const block = { blockHash, header, body: body.map(Binary.fromHex) };
+      log.debug(block, "block loaded");
+
+      resolve(block);
     } catch (ex) {
+      log.error(ex, "error loading block");
       reject(ex);
     }
   });

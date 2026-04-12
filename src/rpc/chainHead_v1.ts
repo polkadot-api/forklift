@@ -16,6 +16,9 @@ import {
   withLatestFrom,
 } from "rxjs";
 import { finalizedAndPruned$ } from "../chain";
+import { logger } from "../logger";
+
+const log = logger.child({ module: "chainHead_v1" });
 import { runRuntimeCall } from "../executor";
 import {
   errorResponse,
@@ -94,7 +97,7 @@ export const chainHead_v1_follow: RpcMethod = async (
     for (const child of block.children) {
       const childBlock = blocks[child];
       if (!childBlock) {
-        console.error("Child block not found", { parent: hash, child });
+        log.error({ parent: hash, child }, "child block not found");
         continue;
       }
       ctx.pinnedBlocks.add(child);
@@ -347,7 +350,7 @@ export const chainHead_v1_storage: RpcMethod = (
             })
           ),
         error: (e) => {
-          console.error(e);
+          log.error(e, "storage operation error");
           con.send(
             followEvent(followSubscription, {
               event: "operationError",
@@ -433,7 +436,7 @@ export const chainHead_v1_call: RpcMethod = (
           })
         ),
       error: (e) => {
-        console.error(e);
+        log.error(e, "call operation error");
         con.send(
           followEvent(followSubscription, {
             event: "operationError",

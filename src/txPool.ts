@@ -10,6 +10,9 @@ import {
   withLatestFrom,
 } from "rxjs";
 import type { Block } from "./block-builder/create-block";
+import { logger } from "./logger";
+
+const log = logger.child({ module: "txPool" });
 import { finalizedAndPruned$, type Chain } from "./chain";
 import { getCallCodec } from "./codecs";
 import { runRuntimeCall } from "./executor";
@@ -137,11 +140,7 @@ export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
           tx,
           validateTx(block, tx).then((res) => {
             if (!res.success) {
-              console.error(
-                "Invalid transaction at block",
-                block.hash,
-                res.value
-              );
+              log.error({ blockHash: block.hash, reason: res.value }, "invalid transaction");
               throw res.value;
             }
             return {

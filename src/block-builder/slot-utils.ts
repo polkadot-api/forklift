@@ -11,6 +11,9 @@ import {
   type CodecType,
 } from "@polkadot-api/substrate-bindings";
 import type { Chain } from "../chain";
+import { logger } from "../logger";
+
+const log = logger.child({ module: "slot-utils" });
 import { getConstant, getStorageCodecs } from "../codecs";
 import { runRuntimeCall } from "../executor";
 import type { Block } from "./create-block";
@@ -62,7 +65,7 @@ const getAuraSlotDuration = async (chain: Chain, block: Block) => {
     return u64.dec(result);
   } catch {}
 
-  console.error("Couldn't get aura slot duration");
+  log.error("couldn't get aura slot duration, defaulting to 12s");
   return 12_000n;
 };
 

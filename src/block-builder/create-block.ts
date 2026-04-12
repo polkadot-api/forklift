@@ -10,6 +10,9 @@ import {
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
+import { logger } from "../logger";
+
+const log = logger.child({ module: "block-builder" });
 import { getConstant, getStorageCodecs } from "../codecs";
 import {
   getRuntimeVersion,
@@ -188,7 +191,7 @@ const buildBlock = async (
     };
   }
 
-  console.log("initialise block");
+  log.debug("initialise block");
   // Call Core_initialize_block
   const initResponse = await runRuntimeCall({
     chain,
@@ -209,7 +212,7 @@ const buildBlock = async (
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
-      console.log("apply extrinsic");
+      log.debug("apply extrinsic");
       const applyResponse = await runRuntimeCall({
         chain,
         hash: parentHash,
@@ -228,11 +231,11 @@ const buildBlock = async (
         ...Object.fromEntries(applyResponse.storageDiff),
       };
     } catch (ex) {
-      console.error(ex);
+      log.error(ex, "failed to apply extrinsic");
     }
   }
 
-  console.log("finalize block");
+  log.debug("finalize block");
   let originalWeight:
     | {
         key: HexString;
