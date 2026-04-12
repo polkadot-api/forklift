@@ -32,7 +32,7 @@ export default [
     },
   },
   {
-    input: "cli.ts",
+    input: "cli/cli.ts",
     external: (id, _parent, isResolved) =>
       (isResolved && id === srcIndexId) ||
       (!/^[./]/.test(id) && !/^@\//.test(id)),

@@ -18,7 +18,6 @@ export const dev_newBlock: RpcMethod<{
 };
 
 export const dev_setStorage: RpcMethod<{
-  // TODO StorageConfig not supported (PJS-style set storage)
   storageValues: Array<[HexString, HexString | null]>;
   blockHash?: HexString;
 }> = async (con, req, { chain }) => {

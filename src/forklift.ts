@@ -79,7 +79,7 @@ export function forklift(
   const source = createRemoteSource(sourceDef.value.url, {
     atBlock: sourceDef.value.atBlock,
   });
-  let options = { ...defaultOptions, ...opts };
+  let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
   const chain = createChain(source, options.key);
   const txPool = createTxPool(chain);
 
@@ -263,8 +263,7 @@ export function forklift(
     setStorage: async (hash, changes) => chain.setStorage(hash, changes),
     getStorageDiff: (hash, baseHash) => chain.getStorageDiff(hash, baseHash),
     changeOptions(opts) {
-      // TODO I think assumptions can be broken by passing { someOption: undefined }
-      options = { ...options, ...opts };
+      options = { ...options, ...removeUndefinedProperties(opts) };
     },
     destroy() {
       dmpSub.unsubscribe();
@@ -276,3 +275,9 @@ export function forklift(
     },
   };
 }
+
+const removeUndefinedProperties = <T extends object>(value: T | undefined) =>
+  value &&
+  Object.fromEntries(
+    Object.entries(value).filter(([, value]) => value !== undefined)
+  );

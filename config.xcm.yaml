@@ -1,0 +1,36 @@
+# Multi-chain example
+# Fork a relay chain and two parachains with XCM wired automatically
+
+chains:
+  polkadot:
+    endpoint: wss://rpc.polkadot.io
+    port: 3000
+
+  asset-hub:
+    endpoint: wss://polkadot-asset-hub-rpc.polkadot.io
+    port: 3001
+    parachainOf: polkadot
+    storage:
+      - pallet: Assets
+        entry: Asset
+        key: [1984]
+        value:
+          {
+            "owner": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
+            "issuer": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
+            "admin": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
+            "freezer": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
+            "supply": "13_140_000_000_000__000_000n",
+            "deposit": "2_019__000_000n",
+            "min_balance": "1_000_000__000_000n",
+            "is_sufficient": false,
+            "accounts": 2,
+            "sufficients": 0,
+            "approvals": 0,
+            "status": { "type": "Live" },
+          }
+
+  hydration:
+    endpoint: wss://rpc.helikon.io/hydradx
+    port: 3002
+    parachainOf: polkadot
