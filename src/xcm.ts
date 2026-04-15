@@ -1,4 +1,4 @@
-import { parachain, relay } from "@polkadot-api/descriptors";
+import { parachain, relay } from "../.papi/descriptors/dist";
 import { concatMapEager } from "@polkadot-api/observable-client";
 import {
   bool,

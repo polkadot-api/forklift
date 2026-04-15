@@ -1,11 +1,23 @@
-import type {
-  JsonRpcConnection,
-  JsonRpcProvider,
+import {
+  type JsonRpcConnection,
+  type JsonRpcProvider,
 } from "@polkadot-api/substrate-client";
 import { type Serve } from "bun";
 import { Subject } from "rxjs";
 import type { Forklift } from "./forklift";
 import { logger } from "./logger";
+import {
+  archive_v1_body,
+  archive_v1_call,
+  archive_v1_finalizedHeight,
+  archive_v1_genesisHash,
+  archive_v1_hashByHeight,
+  archive_v1_header,
+  archive_v1_stopStorage,
+  archive_v1_stopStorageDiff,
+  archive_v1_storage,
+  archive_v1_storageDiff,
+} from "./rpc/archive_v1";
 import {
   chainHead_v1_body,
   chainHead_v1_call,
@@ -39,6 +51,16 @@ import {
 const log = logger.child({ module: "serve" });
 
 export const methods: Record<string, RpcMethod> = {
+  archive_v1_body,
+  archive_v1_call,
+  archive_v1_finalizedHeight,
+  archive_v1_genesisHash,
+  archive_v1_hashByHeight,
+  archive_v1_header,
+  archive_v1_stopStorage,
+  archive_v1_stopStorageDiff,
+  archive_v1_storage,
+  archive_v1_storageDiff,
   chainHead_v1_body,
   chainHead_v1_call,
   chainHead_v1_follow,
@@ -72,6 +94,7 @@ export const createServer = (
       disconnect$: disconnect.asObservable(),
       context: {
         chainHead_v1_subs: {},
+        archive_v1_storage_subs: {},
       },
     };
 

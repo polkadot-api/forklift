@@ -262,8 +262,10 @@ export async function loadConfig(path: string): Promise<ParsedConfig> {
 const parseNumber = (value: unknown) => {
   if (typeof value === "number") return value;
   if (typeof value !== "string") return null;
-  value = value.replaceAll("_", "");
-  return Number.isNaN(value) ? null : Number(value);
+  const valueStr = value.replaceAll("_", "");
+  return valueStr.startsWith("0x") || Number.isNaN(valueStr)
+    ? null
+    : Number(valueStr);
 };
 
 const parseNumeric = (value: unknown) => {
@@ -276,5 +278,5 @@ const parseNumeric = (value: unknown) => {
       return null;
     }
   }
-  value = value.replaceAll("_", "");
+  return parseNumber(value);
 };

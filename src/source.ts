@@ -2,6 +2,7 @@ import { blockHeader } from "@polkadot-api/substrate-bindings";
 import {
   createClient,
   type ChainSpecData,
+  type SubstrateClient,
 } from "@polkadot-api/substrate-client";
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
@@ -30,6 +31,19 @@ export interface Source {
 
   /** Disconnect from the source */
   destroy(): void;
+
+  archive?: {
+    getBody: (hash: HexString) => Promise<Uint8Array[]>;
+    getHeader: (hash: HexString) => Promise<BlockHeader>;
+    call: (
+      hash: HexString,
+      fnName: string,
+      parameters: HexString
+    ) => Promise<HexString>;
+    getHashByHeight: (height: number) => Promise<HexString[]>;
+
+    storageSubscription: SubstrateClient["archive"]["storageSubscription"];
+  };
 }
 
 export const createRemoteSource = (
@@ -112,7 +126,6 @@ export const createRemoteSource = (
 
     async getStorage(key: HexString): Promise<Uint8Array | null> {
       const { blockHash } = await block;
-      // queries.push(key);
       // console.log("--" + key);
       const value = await archive.storage(blockHash, "value", key, null);
       return value ? Binary.fromHex(value) : null;
@@ -146,11 +159,6 @@ export const createRemoteSource = (
     async getStorageDescendants(
       prefix: HexString
     ): Promise<Record<HexString, Uint8Array>> {
-      if (prefix.length < 10) {
-        throw new Error("Descendants too broad");
-      }
-      // descendants.push(prefix);
-
       const { blockHash } = await block;
       const entries = await archive.storage(
         blockHash,
@@ -171,6 +179,16 @@ export const createRemoteSource = (
 
     destroy(): void {
       substrateClient.destroy();
+    },
+
+    archive: {
+      getBody: async (hash) => (await archive.body(hash)).map(Binary.fromHex),
+      getHeader: async (hash) =>
+        blockHeader.dec(Binary.fromHex(await archive.header(hash))),
+      call: (hash, fnName, parameters) =>
+        archive.call(hash, fnName, parameters),
+      getHashByHeight: (height) => archive.hashByHeight(height),
+      storageSubscription: archive.storageSubscription,
     },
   };
 };

@@ -55,7 +55,7 @@ export default [
       format: "es",
       sourcemap: true,
       entryFileNames: "[name].js",
-      paths: (id) => (id === srcIndexId ? "../dist/index.js" : id),
+      paths: (id) => (id === srcIndexId ? "../dist/src/index.js" : id),
     },
   },
 ];

@@ -15,7 +15,7 @@ import {
   Subscription,
   withLatestFrom,
 } from "rxjs";
-import { finalizedAndPruned$ } from "../chain";
+import { finalizedAndPruned$, type Chain } from "../chain";
 import { logger } from "../logger";
 
 const log = logger.child({ module: "chainHead_v1" });
@@ -27,6 +27,7 @@ import {
   respond,
   type RpcMethod,
 } from "./rpc_utils";
+import type { Block } from "../block-builder/create-block";
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -47,13 +48,9 @@ const blockNotReadable = (req: JsonRpcRequest) =>
     message: "Block not readable",
   });
 
-export const chainHead_v1_follow: RpcMethod = async (
-  con,
-  req: JsonRpcRequest<{
-    withRuntime: boolean;
-  }>,
-  { chain }
-) => {
+export const chainHead_v1_follow: RpcMethod<{
+  withRuntime: boolean;
+}> = async (con, req, { chain }) => {
   const { withRuntime } = getParams(req, ["withRuntime"]);
 
   const subId = getUuid();
@@ -178,12 +175,9 @@ export const chainHead_v1_follow: RpcMethod = async (
   );
 };
 
-export const chainHead_v1_unfollow: RpcMethod = async (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-  }>
-) => {
+export const chainHead_v1_unfollow: RpcMethod<{
+  followSubscription: string;
+}> = async (con, req) => {
   const { followSubscription } = getParams(req, ["followSubscription"]);
 
   const followSub = con.context.chainHead_v1_subs[followSubscription];
@@ -197,14 +191,10 @@ export const chainHead_v1_unfollow: RpcMethod = async (
   delete con.context.chainHead_v1_subs[followSubscription];
 };
 
-export const chainHead_v1_header: RpcMethod = (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-    hash: string;
-  }>,
-  { chain }
-) => {
+export const chainHead_v1_header: RpcMethod<{
+  followSubscription: string;
+  hash: string;
+}> = (con, req, { chain }) => {
   const { followSubscription, hash } = getParams(req, [
     "followSubscription",
     "hash",
@@ -274,18 +264,65 @@ export const chainHead_v1_storage: RpcMethod = (
     })
   );
 
+  subscription.add(
+    resolveStorageOperation(chain, hash, items).subscribe({
+      next: (items) =>
+        con.send(
+          followEvent(followSubscription, {
+            event: "operationStorageItems",
+            operationId: opId,
+            items,
+          })
+        ),
+      error: (e) => {
+        log.error(e, "storage operation error");
+        con.send(
+          followEvent(followSubscription, {
+            event: "operationError",
+            operationId: opId,
+            error: e.message,
+          })
+        );
+        cleanup();
+      },
+      complete: () => {
+        con.send(
+          followEvent(followSubscription, {
+            event: "operationStorageDone",
+            operationId: opId,
+          })
+        );
+        cleanup();
+      },
+    })
+  );
+};
+
+export type StorageItem = {
+  key: HexString;
+  value?: HexString;
+  hash?: HexString;
+  closestDescendantMerkleValue?: HexString;
+};
+export const resolveStorageOperation = (
+  chain: Chain,
+  hash: HexString,
+  items: Array<{
+    key: HexString;
+    type:
+      | "value"
+      | "hash"
+      | "closestDescendantMerkleValue"
+      | "descendantsValues"
+      | "descendantsHashes";
+  }>
+) => {
   const nodeQueries = items.filter(
     (it) =>
       it.type === "closestDescendantMerkleValue" ||
       it.type === "hash" ||
       it.type === "value"
   );
-  type StorageItem = {
-    key: HexString;
-    value?: HexString;
-    hash?: HexString;
-    closestDescendantMerkleValue?: HexString;
-  };
 
   // TODO pagination
   const nodeQueries$ = from(
@@ -338,52 +375,17 @@ export const chainHead_v1_storage: RpcMethod = (
     )
   );
 
-  subscription.add(
-    merge(nodeQueries$, ...descendantQueries$)
-      .pipe(filter((v) => v.length > 0))
-      .subscribe({
-        next: (items) =>
-          con.send(
-            followEvent(followSubscription, {
-              event: "operationStorageItems",
-              operationId: opId,
-              items,
-            })
-          ),
-        error: (e) => {
-          log.error(e, "storage operation error");
-          con.send(
-            followEvent(followSubscription, {
-              event: "operationError",
-              operationId: opId,
-              error: e.message,
-            })
-          );
-          cleanup();
-        },
-        complete: () => {
-          con.send(
-            followEvent(followSubscription, {
-              event: "operationStorageDone",
-              operationId: opId,
-            })
-          );
-          cleanup();
-        },
-      })
+  return merge(nodeQueries$, ...descendantQueries$).pipe(
+    filter((v) => v.length > 0)
   );
 };
 
-export const chainHead_v1_call: RpcMethod = (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-    hash: HexString;
-    function: HexString;
-    callParameters: HexString;
-  }>,
-  { chain }
-) => {
+export const chainHead_v1_call: RpcMethod<{
+  followSubscription: string;
+  hash: HexString;
+  function: HexString;
+  callParameters: HexString;
+}> = (con, req, { chain }) => {
   const {
     followSubscription,
     hash,
@@ -454,14 +456,10 @@ export const chainHead_v1_call: RpcMethod = (
   );
 };
 
-export const chainHead_v1_body: RpcMethod = (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-    hash: string;
-  }>,
-  { chain }
-) => {
+export const chainHead_v1_body: RpcMethod<{
+  followSubscription: string;
+  hash: string;
+}> = (con, req, { chain }) => {
   const { followSubscription, hash } = getParams(req, [
     "followSubscription",
     "hash",
@@ -492,14 +490,10 @@ export const chainHead_v1_body: RpcMethod = (
   );
 };
 
-export const chainHead_v1_stopOperation: RpcMethod = (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-    operationId: string;
-  }>,
-  { chain }
-) => {
+export const chainHead_v1_stopOperation: RpcMethod<{
+  followSubscription: string;
+  operationId: string;
+}> = (con, req) => {
   const { followSubscription, operationId } = getParams(req, [
     "followSubscription",
     "operationId",
@@ -513,14 +507,10 @@ export const chainHead_v1_stopOperation: RpcMethod = (
   delete sub.operations[operationId];
 };
 
-export const chainHead_v1_unpin: RpcMethod = (
-  con,
-  req: JsonRpcRequest<{
-    followSubscription: string;
-    hashOrHashes: HexString | HexString[];
-  }>,
-  {}
-) => {
+export const chainHead_v1_unpin: RpcMethod<{
+  followSubscription: string;
+  hashOrHashes: HexString | HexString[];
+}> = (con, req) => {
   const { followSubscription, hashOrHashes } = getParams(req, [
     "followSubscription",
     "hashOrHashes",

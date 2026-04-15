@@ -24,6 +24,7 @@ export interface Connection {
         subscription: Subscription;
       }
     >;
+    archive_v1_storage_subs: Record<string, Subscription>;
   };
 }
 
