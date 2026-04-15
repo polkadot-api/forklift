@@ -1,5 +1,5 @@
 import { forklift } from "./src/forklift";
-import { createWsServer } from "./src/bun";
+import { createWsServer } from "./server/bun";
 
 // MultiBlockElection.CurrentPhase suspicious of triggering a slow initialised
 

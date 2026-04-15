@@ -12,7 +12,8 @@ import {
 } from "@polkadot-api/substrate-client";
 import { Binary, Enum, type HexString } from "polkadot-api";
 import { createWsClient, getWsRawProvider } from "polkadot-api/ws";
-import { createWsServer, forklift } from "../src";
+import { forklift } from "../src";
+import { createWsServer } from "../server/node";
 import type {
   ParsedChainConfig,
   ParsedConfig,
@@ -120,7 +121,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
     }
   );
 
-  const server = createWsServer(f, { port: config.port });
+  const server = await createWsServer(f, { port: config.port });
 
   if (config.storage) {
     logWithKey.info(`Waiting for initial block`);

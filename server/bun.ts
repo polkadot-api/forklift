@@ -1,6 +1,6 @@
 import type { JsonRpcConnection } from "@polkadot-api/substrate-client";
 import type { Serve } from "bun";
-import type { Forklift } from "./forklift";
+import type { Forklift } from "../src/forklift";
 
 export const createWsServer = (
   forklift: Forklift,

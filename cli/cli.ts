@@ -1,6 +1,6 @@
-#!/usr/bin/env bun
 import { program } from "commander";
-import { createWsServer, forklift, logger } from "../src";
+import { forklift, logger } from "../src";
+import { createWsServer } from "../server/node";
 import { loadConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { runFromConfig } from "./runFromConfig.ts";
@@ -41,7 +41,7 @@ program
       const port = parseInt(opts.port, 10);
 
       const f = forklift({ type: "remote", value: { url: url!, atBlock } });
-      const server = createWsServer(f, { port });
+      const server = await createWsServer(f, { port });
 
       log.info(
         `Forking ${url}${atBlock !== undefined ? ` at block ${atBlock}` : ""}`
