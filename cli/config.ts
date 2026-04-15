@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { HexString } from "polkadot-api";
 import { parse } from "yaml";
 
@@ -252,7 +253,7 @@ export function parseConfig(yaml: string): ParsedConfig {
 export async function loadConfig(path: string): Promise<ParsedConfig> {
   let text: string;
   try {
-    text = await Bun.file(path).text();
+    text = await readFile(path, "utf8");
   } catch {
     throw new Error(`Cannot read config file: ${path}`);
   }
