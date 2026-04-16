@@ -102,7 +102,7 @@ options:
   finalizeMode:
     timer: 2000
 storage:
-  - key: 0x3a636f6465
+  - key: 0x1234567890
     value: null
 ```
 
@@ -240,7 +240,7 @@ storage:
         free: 100_0_000_000_000n
         reserved: 0n
         frozen: 0n
-        flags: 0
+        flags: 170141183460469231731687303715884105728n
 ```
 
 Notes:

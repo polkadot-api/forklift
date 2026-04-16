@@ -6,12 +6,12 @@ import type {
   DmpMessage,
 } from "./block-builder/create-block";
 import { createChain } from "./chain";
+import { logger } from "./logger";
 import { runPrequeries } from "./prequeries";
-import type { ServerContext } from "./rpc/rpc_utils";
+import type { RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import { createRemoteSource } from "./source";
 import { createTxPool } from "./txPool";
-import { logger } from "./logger";
 import { pushUmp } from "./xcm";
 
 const log = logger.child({ module: "forklift" });
@@ -22,6 +22,7 @@ export interface NewBlockOptions {
   parent: HexString;
   disableOnIdle: boolean;
   storage: CreateBlockParams["storage"];
+  mockSignatureHost?: boolean;
 }
 
 export interface Forklift {
@@ -62,13 +63,14 @@ export interface ForkliftOptions {
   buildBlockMode: DelayMode;
   finalizeMode: DelayMode;
   disableOnIdle?: boolean;
-  mockSignatureHost?: (signature: Uint8Array) => boolean;
-  key?: string;
+  mockSignatureHost?: boolean;
+  rpcOverrides: Record<string, RpcMethod | null>;
 }
 
 const defaultOptions: ForkliftOptions = {
   buildBlockMode: Enum("timer", 100),
   finalizeMode: Enum("timer", 2000),
+  rpcOverrides: {},
 };
 
 type Timeout = ReturnType<typeof setTimeout>;
@@ -80,7 +82,7 @@ export function forklift(
     atBlock: sourceDef.value.atBlock,
   });
   let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
-  const chain = createChain(source, options.key);
+  const chain = createChain(source);
   const txPool = createTxPool(chain);
 
   runPrequeries(chain);
@@ -178,6 +180,8 @@ export function forklift(
         xcm: { dmp, hrmp },
         storage: opts?.storage ?? {},
         unsafeBlockHeight: opts?.unsafeBlockHeight,
+        mockSignatureHost:
+          opts?.mockSignatureHost ?? options.mockSignatureHost ?? false,
       });
       logger.info(`block ${block.hash} created`);
 
@@ -251,8 +255,13 @@ export function forklift(
     pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
   };
 
+  const serve = createServer(
+    { source, chain, txPool, newBlock, xcm },
+    options.rpcOverrides
+  );
+
   return {
-    serve: createServer({ source, chain, txPool, newBlock, xcm }),
+    serve,
     newBlock: (opts) => newBlock(opts),
     changeBest: async (hash) => chain.changeBest(hash),
     changeFinalized: async (hash) => {
@@ -264,6 +273,7 @@ export function forklift(
     getStorageDiff: (hash, baseHash) => chain.getStorageDiff(hash, baseHash),
     changeOptions(opts) {
       options = { ...options, ...removeUndefinedProperties(opts) };
+      serve.setRpcOverrides(options.rpcOverrides);
     },
     destroy() {
       dmpSub.unsubscribe();

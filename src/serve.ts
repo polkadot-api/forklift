@@ -1,4 +1,5 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
+import { filterObject } from "polkadot-api/utils";
 import { Subject } from "rxjs";
 import { logger } from "./logger";
 import {
@@ -80,8 +81,21 @@ export const methods: Record<string, RpcMethod> = {
 };
 
 export const createServer = (
-  ctx: Omit<ServerContext, "provider">
-): JsonRpcProvider => {
+  ctx: Omit<ServerContext, "provider">,
+  rpcOverrides: Record<string, RpcMethod | null>
+): JsonRpcProvider & {
+  setRpcOverrides: (rpcOverrides: Record<string, RpcMethod | null>) => void;
+} => {
+  const getActiveMethods = (overrides: Record<string, RpcMethod | null>) =>
+    filterObject(
+      {
+        ...methods,
+        ...overrides,
+      },
+      (v) => v != null
+    );
+  let activeMethods = getActiveMethods(rpcOverrides);
+
   const provider: JsonRpcProvider = (send) => {
     const disconnect = new Subject<void>();
     const con: Connection = {
@@ -100,11 +114,11 @@ export const createServer = (
           return send({
             jsonrpc: "2.0",
             id: req.id!,
-            result: { methods: Object.keys(methods) },
+            result: { methods: Object.keys(activeMethods) },
           });
         }
 
-        const method = methods[req.method];
+        const method = activeMethods[req.method];
         if (method) {
           method(con, req, { ...ctx, provider });
         } else {
@@ -121,5 +135,10 @@ export const createServer = (
       },
     };
   };
-  return provider;
+
+  return Object.assign(provider, {
+    setRpcOverrides: (rpcOverrides: Record<string, RpcMethod | null>) => {
+      activeMethods = getActiveMethods(rpcOverrides);
+    },
+  });
 };

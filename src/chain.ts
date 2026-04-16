@@ -1,4 +1,3 @@
-import { file } from "bun";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
@@ -18,8 +17,6 @@ import { setBlockMeta } from "./codecs";
 import { getRuntimeVersion } from "./executor";
 import { logger } from "./logger";
 import type { Source } from "./source";
-
-const log = logger.child({ module: "chain" });
 import {
   createRoot,
   deleteValue,
@@ -31,6 +28,8 @@ import {
   insertValue,
   type StorageNode,
 } from "./storage";
+
+const log = logger.child({ module: "chain" });
 
 export interface Chain {
   blocks$: Observable<Record<HexString, Block>>;
@@ -76,9 +75,7 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-export const createChain = (source: Source, key?: string): Chain => {
-  const cacheFile = key ? `code_${key}.bin` : null;
-
+export const createChain = (source: Source): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -89,15 +86,11 @@ export const createChain = (source: Source, key?: string): Chain => {
   // Create the initial block from the source
   const asyncInitialBlock: Promise<Block> = source.block.then(async (block) => {
     log.debug("loading code");
-    const code =
-      cacheFile && (await file(cacheFile).exists())
-        ? await file(cacheFile).bytes()
-        : await source.getStorage(CODE_KEY);
+    const code = await source.getStorage(CODE_KEY);
 
     if (!code) {
       throw new Error("No runtime code found at source block");
     }
-    if (cacheFile) file(cacheFile).write(code);
 
     log.debug("code loaded, getting runtime");
     const initialRuntime = await getRuntimeVersion(code);
@@ -369,7 +362,10 @@ export const createChain = (source: Source, key?: string): Chain => {
 
     const base = getBlock(baseHash ?? target.parent);
     if (!base) {
-      throw new Error(`Parent block not loaded`);
+      if (baseHash) {
+        throw new Error(`Base block not found`);
+      }
+      return {};
     }
     const diff = getDiff(
       base.storageRoot,

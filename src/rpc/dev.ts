@@ -6,13 +6,12 @@ export const dev_newBlock: RpcMethod<{
   params?: {
     parent?: string;
     unsafeBlockHeight?: number;
+    disableOnIdle?: boolean;
+    type?: "best" | "finalized" | "fork";
   };
 }> = async (con, req, { newBlock }) => {
   const { params } = getParams(req, ["params"]);
-  const hash = await newBlock({
-    parent: params?.parent,
-    unsafeBlockHeight: params?.unsafeBlockHeight,
-  });
+  const hash = await newBlock(params ?? {});
 
   con.send(respond(req, hash));
 };

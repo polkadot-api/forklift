@@ -37,6 +37,7 @@ export interface CreateBlockParams {
   xcm: XcmMessages;
   storage: Record<HexString, Uint8Array | null>;
   disableOnIdle: boolean;
+  mockSignatureHost?: boolean;
 }
 
 export interface Block {

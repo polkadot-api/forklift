@@ -11,7 +11,6 @@ const assetHubFork = forklift(
     },
   },
   {
-    key: "ahPas",
     disableOnIdle: true,
   }
 );
@@ -24,9 +23,6 @@ console.log("AssetHub listening at", assetHubServer.port);
 //     value: {
 //       url: "wss://bridge-hub-paseo.ibp.network",
 //     },
-//   },
-//   {
-//     key: "bhPas",
 //   }
 // );
 // const bridgeHubServer = createWsServer(bridgeHubFork);

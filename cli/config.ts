@@ -41,6 +41,7 @@ export type ParsedChainConfig = {
     disableOnIdle?: boolean;
     buildBlockMode?: DelayModeConfig;
     finalizeMode?: DelayModeConfig;
+    mockSignatureHost?: boolean;
   };
   storage?: StorageOverride[];
 };
