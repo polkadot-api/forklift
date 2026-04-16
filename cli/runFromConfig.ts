@@ -12,8 +12,8 @@ import {
 } from "@polkadot-api/substrate-client";
 import { Binary, Enum, type HexString } from "polkadot-api";
 import { createWsClient, getWsRawProvider } from "polkadot-api/ws";
-import { forklift } from "../src";
 import { createWsServer } from "../server/node";
+import { forklift, wsSource } from "../src";
 import type {
   ParsedChainConfig,
   ParsedConfig,
@@ -102,10 +102,9 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
   );
 
   const f = forklift(
-    {
-      type: "remote",
-      value: { url: config.endpoint, atBlock: config.block },
-    },
+    wsSource(config.endpoint, {
+      atBlock: config.block,
+    }),
     {
       buildBlockMode:
         config.options?.buildBlockMode &&

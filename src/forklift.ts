@@ -10,7 +10,7 @@ import { logger } from "./logger";
 import { runPrequeries } from "./prequeries";
 import type { RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
-import { createRemoteSource } from "./source";
+import type { Source } from "./source";
 import { createTxPool } from "./txPool";
 import { pushUmp } from "./xcm";
 
@@ -46,14 +46,6 @@ export interface Forklift {
   destroy: () => void;
 }
 
-export type ForkliftSource = Enum<{
-  remote: {
-    url: string | string[];
-    atBlock?: number | string;
-  };
-  // genesis: Record<string, string>;
-}>;
-
 export type DelayMode = Enum<{
   manual: undefined;
   timer: number;
@@ -75,12 +67,9 @@ const defaultOptions: ForkliftOptions = {
 
 type Timeout = ReturnType<typeof setTimeout>;
 export function forklift(
-  sourceDef: ForkliftSource,
+  source: Source,
   opts?: Partial<ForkliftOptions>
 ): Forklift {
-  const source = createRemoteSource(sourceDef.value.url, {
-    atBlock: sourceDef.value.atBlock,
-  });
   let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
   const chain = createChain(source);
   const txPool = createTxPool(chain);

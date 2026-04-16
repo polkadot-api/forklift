@@ -1,15 +1,11 @@
 import { forklift } from "./src/forklift";
 import { createWsServer } from "./server/bun";
+import { wsSource } from "./src";
 
 // MultiBlockElection.CurrentPhase suspicious of triggering a slow initialised
 
 const assetHubFork = forklift(
-  {
-    type: "remote",
-    value: {
-      url: "wss://sys.ibp.network/asset-hub-paseo",
-    },
-  },
+  wsSource("wss://sys.ibp.network/asset-hub-paseo"),
   {
     disableOnIdle: true,
   }

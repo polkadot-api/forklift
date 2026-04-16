@@ -255,17 +255,13 @@ Notes:
 You can also create a chain from code:
 
 ```ts
-import { forklift } from "@polkadot-api/forklift";
+import { forklift, wsSource } from "@polkadot-api/forklift";
 import { Enum } from "polkadot-api";
 
 const polkadot = forklift(
-  {
-    type: "remote",
-    value: {
-      url: "wss://rpc.polkadot.io",
-      atBlock: 22000000,
-    },
-  },
+  wsSource("wss://rpc.polkadot.io", {
+    atBlock: 22000000,
+  }),
   {
     buildBlockMode: Enum("timer", 100),
     finalizeMode: Enum("timer", 2000),

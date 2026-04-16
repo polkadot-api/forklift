@@ -46,7 +46,7 @@ export interface Source {
   };
 }
 
-export const createRemoteSource = (
+export const wsSource = (
   url: string | string[],
   options: {
     atBlock?: number | string;

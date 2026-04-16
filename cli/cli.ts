@@ -1,6 +1,6 @@
 import { program } from "commander";
-import { forklift, logger } from "../src";
 import { createWsServer } from "../server/node";
+import { forklift, logger, wsSource } from "../src";
 import { loadConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { runFromConfig } from "./runFromConfig.ts";
@@ -21,15 +21,15 @@ program
       url: string | undefined,
       opts: { block?: string; config?: string; port: string; logLevel: string }
     ) => {
-      if (!url && !opts.config) {
-        program.error("error: either <url> or --config <file> is required");
-      }
-
       logger.level = opts.logLevel;
 
       const config = opts.config ? await loadConfig(opts.config) : null;
       if (config) {
         return runFromConfig(config);
+      }
+
+      if (!url) {
+        program.error("error: either <url> or --config <file> is required");
       }
 
       const atBlock = opts.block
@@ -40,7 +40,7 @@ program
 
       const port = parseInt(opts.port, 10);
 
-      const f = forklift({ type: "remote", value: { url: url!, atBlock } });
+      const f = forklift(wsSource(url, { atBlock }));
       const server = await createWsServer(f, { port });
 
       log.info(

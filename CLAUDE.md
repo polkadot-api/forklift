@@ -210,7 +210,7 @@ interface ForkliftOptions {
 - `newBlock()` is serialized via a queue (`buildBlockQueue`) — concurrent calls wait
 - Transactions are fetched from the tx pool automatically (not exposed in `NewBlockOptions`)
 - XCM messages are handled internally by the XCM routing layer (not exposed in `NewBlockOptions`)
-- `storage` overrides in `NewBlockOptions` are applied to the parent block's trie *before* `createBlock` runs, so the runtime sees them during execution
+- `storage` overrides in `NewBlockOptions` are applied to the parent block's trie _before_ `createBlock` runs, so the runtime sees them during execution
 - If `automatic=true` and no transactions or pending XCM messages exist, the block is skipped
 - After building, best is updated if the new block is taller than current best
 - Finalization uses a timer (or is immediate if `finalizeMode.timer === 0`)
@@ -299,30 +299,30 @@ const createServer = (ctx: ServerContext): JsonRpcProvider
 
 **Implemented methods:**
 
-| Method                       | File              |
-| ---------------------------- | ----------------- |
-| `chainHead_v1_follow`        | chainHead_v1.ts   |
-| `chainHead_v1_unfollow`      | chainHead_v1.ts   |
-| `chainHead_v1_header`        | chainHead_v1.ts   |
-| `chainHead_v1_body`          | chainHead_v1.ts   |
-| `chainHead_v1_storage`       | chainHead_v1.ts   |
-| `chainHead_v1_call`          | chainHead_v1.ts   |
-| `chainHead_v1_stopOperation` | chainHead_v1.ts   |
-| `chainHead_v1_unpin`         | chainHead_v1.ts   |
-| `chainSpec_v1_chainName`     | chainSpec_v1.ts   |
-| `chainSpec_v1_genesisHash`   | chainSpec_v1.ts   |
-| `chainSpec_v1_properties`    | chainSpec_v1.ts   |
-| `transaction_v1_broadcast`        | transaction_v1.ts  |
-| `transaction_v1_stop`             | transaction_v1.ts  |
-| `dev_newBlock`                    | dev.ts             |
-| `dev_setStorage`                  | dev.ts             |
-| `forklift_xcm_attach_relay`       | forklift_xcm.ts    |
-| `forklift_xcm_attach_sibling`     | forklift_xcm.ts    |
-| `forklift_xcm_consume_dmp`        | forklift_xcm.ts    |
-| `forklift_xcm_push_ump`           | forklift_xcm.ts    |
-| `forklift_xcm_push_hrmp`          | forklift_xcm.ts    |
-| `forklift_xcm_open_hrmp_channel`  | forklift_xcm.ts    |
-| `rpc_methods`                     | serve.ts (inline)  |
+| Method                           | File              |
+| -------------------------------- | ----------------- |
+| `chainHead_v1_follow`            | chainHead_v1.ts   |
+| `chainHead_v1_unfollow`          | chainHead_v1.ts   |
+| `chainHead_v1_header`            | chainHead_v1.ts   |
+| `chainHead_v1_body`              | chainHead_v1.ts   |
+| `chainHead_v1_storage`           | chainHead_v1.ts   |
+| `chainHead_v1_call`              | chainHead_v1.ts   |
+| `chainHead_v1_stopOperation`     | chainHead_v1.ts   |
+| `chainHead_v1_unpin`             | chainHead_v1.ts   |
+| `chainSpec_v1_chainName`         | chainSpec_v1.ts   |
+| `chainSpec_v1_genesisHash`       | chainSpec_v1.ts   |
+| `chainSpec_v1_properties`        | chainSpec_v1.ts   |
+| `transaction_v1_broadcast`       | transaction_v1.ts |
+| `transaction_v1_stop`            | transaction_v1.ts |
+| `dev_newBlock`                   | dev.ts            |
+| `dev_setStorage`                 | dev.ts            |
+| `forklift_xcm_attach_relay`      | forklift_xcm.ts   |
+| `forklift_xcm_attach_sibling`    | forklift_xcm.ts   |
+| `forklift_xcm_consume_dmp`       | forklift_xcm.ts   |
+| `forklift_xcm_push_ump`          | forklift_xcm.ts   |
+| `forklift_xcm_push_hrmp`         | forklift_xcm.ts   |
+| `forklift_xcm_open_hrmp_channel` | forklift_xcm.ts   |
+| `rpc_methods`                    | serve.ts (inline) |
 
 **Design decisions:**
 
@@ -535,19 +535,14 @@ forklift <url> [options]
 
 ```typescript
 import { forklift } from "./src/forklift";
+import { wsSource } from "./src/source";
 import { Enum } from "polkadot-api";
 
-const f = forklift(
-  {
-    type: "remote",
-    value: { url: "wss://rpc.polkadot.io" },
-  },
-  {
-    disableOnIdle: true,
-    buildBlockMode: Enum("timer", 100),
-    finalizeMode: Enum("timer", 2000),
-  }
-);
+const f = forklift(wsSource("wss://rpc.polkadot.io"), {
+  disableOnIdle: true,
+  buildBlockMode: Enum("timer", 100),
+  finalizeMode: Enum("timer", 2000),
+});
 
 const hash = await f.newBlock();
 console.log("new block:", hash);
