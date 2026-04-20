@@ -184,6 +184,7 @@ const buildBlock = async (
   const systemNumberCodec = await getStorageCodecs(parent, "System", "Number");
   if (systemNumberCodec) {
     storageOverrides = {
+      ...storageOverrides,
       [systemNumberCodec.keys.enc()]: Binary.toHex(
         systemNumberCodec.value.enc(height - 1)
       ),

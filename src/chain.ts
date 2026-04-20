@@ -398,6 +398,11 @@ export const createChain = (source: Source): Chain => {
     assertFinalizedDescendant(params.parent);
 
     const block = await createBlock(chain, params);
+    const existingBlock = getBlock(block.hash);
+    if (existingBlock) {
+      logger.info(`Discarding new block ${block.hash}: it already exists`);
+      return existingBlock;
+    }
 
     // If the finalized has changed while we were building the block and this one
     // became pruned, then we should fail.

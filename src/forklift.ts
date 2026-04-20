@@ -23,6 +23,7 @@ export interface NewBlockOptions {
   disableOnIdle: boolean;
   storage: CreateBlockParams["storage"];
   mockSignatureHost?: boolean;
+  transactions: Uint8Array[];
 }
 
 export interface Forklift {
@@ -147,7 +148,8 @@ export function forklift(
       const parent = opts?.parent ?? (await firstValueFrom(chain.best$));
       const parentBlock = chain.getBlock(parent)!;
 
-      const transactions = await txPool.getTxsForBlock(parentBlock);
+      const transactions =
+        opts?.transactions ?? (await txPool.getTxsForBlock(parentBlock));
       // An automatic trigger from tx pool should not produce the block if the block won't have any tx
       if (
         automatic &&
