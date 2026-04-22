@@ -137,14 +137,14 @@ That makes the config suitable for relay/parachain and parachain/parachain XCM t
 
 Each chain config supports the following fields:
 
-| Field         | Type     | Description                                     |
-| ------------- | -------- | ----------------------------------------------- | --------------------------------------------------- |
-| `endpoint`    | `string  | string[]`                                       | Remote WebSocket endpoint or endpoints to fork from |
-| `block`       | `number  | string`                                         | Optional block number or block hash to fork from    |
-| `port`        | `number` | Preferred local WebSocket port                  |
-| `parachainOf` | `string` | Name of the relay chain in a multi-chain config |
-| `options`     | `object` | Forklift runtime options                        |
-| `storage`     | `array`  | Storage overrides applied after startup         |
+| Field         | Type                 | Description                                         |
+| ------------- | -------------------- | --------------------------------------------------- |
+| `endpoint`    | `string \| string[]` | Remote WebSocket endpoint or endpoints to fork from |
+| `block`       | `number \| string`   | Optional block number or block hash to fork from    |
+| `port`        | `number`             | Preferred local WebSocket port                      |
+| `parachainOf` | `string`             | Name of the relay chain in a multi-chain config     |
+| `options`     | `object`             | Forklift runtime options                            |
+| `storage`     | `array`              | Storage overrides applied after startup             |
 
 ### `options`
 
