@@ -123,6 +123,8 @@ export const createChain = (source: Source): Chain => {
 
     return result;
   });
+  // Mark as a caught error
+  asyncInitialBlock.catch(() => {});
 
   const getBlock = (hash: HexString) => blocks$.getValue()[hash]!;
   const assertBlock = (hash: HexString) => {

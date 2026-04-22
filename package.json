@@ -1,10 +1,10 @@
 {
   "name": "@polkadot-api/forklift",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/polkadot-api/papi-sdks.git"
+    "url": "git+https://github.com/polkadot-api/forklift.git"
   },
   "exports": {
     ".": {
