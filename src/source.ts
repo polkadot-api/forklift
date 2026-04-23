@@ -112,7 +112,7 @@ export const wsSource = (
       const body = await archive.body(blockHash);
 
       const block = { blockHash, header, body: body.map(Binary.fromHex) };
-      log.debug(block, "block loaded");
+      log.debug({ hash: block.blockHash }, "block loaded");
 
       resolve(block);
     } catch (ex) {

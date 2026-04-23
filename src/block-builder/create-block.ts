@@ -10,7 +10,7 @@ import {
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import type { Chain } from "../chain";
-import { getConstant, getStorageCodecs } from "../codecs";
+import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
 import {
   getRuntimeVersion,
   runRuntimeCall,
@@ -191,6 +191,15 @@ const buildBlock = async (
     };
   }
 
+  const applyExtCodec = await getCallCodec(
+    parent,
+    "BlockBuilder",
+    "apply_extrinsic"
+  );
+  if (!applyExtCodec) {
+    throw new Error("BlockBuilder_apply_extrinsic API is required");
+  }
+
   log.debug("initialise block");
   // Call Core_initialize_block
   const initResponse = await runRuntimeCall({
@@ -212,19 +221,29 @@ const buildBlock = async (
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
-      log.debug("apply extrinsic");
+      log.debug("apply extrinsic " + Binary.toHex(extrinsic));
       const applyResponse = await runRuntimeCall({
         chain,
         hash: parentHash,
         call: "BlockBuilder_apply_extrinsic",
         params: Binary.toHex(extrinsic),
         storageOverrides,
-        // Enable mock signature verification to bypass relay chain header seal verification
         mockSignatureHost: true,
       });
-      body.push(extrinsic);
 
-      // console.log(Object.fromEntries(applyResponse.storageDiff));
+      const decodedResult = applyExtCodec.value.dec(applyResponse.result);
+      if (!decodedResult.success) {
+        log.info(
+          {
+            extrinsic: Binary.toHex(extrinsic),
+            error: decodedResult.value,
+          },
+          "excluding extrinsic from block"
+        );
+        continue;
+      }
+
+      body.push(extrinsic);
 
       storageOverrides = {
         ...storageOverrides,
