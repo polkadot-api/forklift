@@ -116,7 +116,7 @@
 
     "@polkadot-api/codegen": ["@polkadot-api/codegen@0.22.3", "", { "dependencies": { "@polkadot-api/ink-contracts": "0.6.1", "@polkadot-api/metadata-builders": "0.14.1", "@polkadot-api/metadata-compatibility": "0.6.1", "@polkadot-api/substrate-bindings": "0.20.1", "@polkadot-api/utils": "0.4.0" } }, "sha512-TaJpxUOuXFIgrkjhPw/H0fwyKz74R/NL4W3Z0YPkxa89fvMmUqlvnam4e7GzcuR7glcXVTELYY6miCEsg4f+Eg=="],
 
-    "@polkadot-api/descriptors": ["@polkadot-api/descriptors@file:.papi/descriptors", { "peerDependencies": { "polkadot-api": ">=2.0.0-rc.1" } }],
+    "@polkadot-api/descriptors": ["@polkadot-api/descriptors@file:.papi/descriptors", { "peerDependencies": { "polkadot-api": ">=2.0.0" } }],
 
     "@polkadot-api/ink-contracts": ["@polkadot-api/ink-contracts@0.6.1", "", { "dependencies": { "@polkadot-api/metadata-builders": "0.14.1", "@polkadot-api/substrate-bindings": "0.20.1", "@polkadot-api/utils": "0.4.0" } }, "sha512-zBuvNSO8V8HLhhWeHvavLJDLrnHNauqfzzvZpqpxVDKEA/dEiyJkZOOtK8OuNdeipCseokwaOyIukTESQGQijg=="],
 

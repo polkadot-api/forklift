@@ -1,7 +1,7 @@
 {
   "name": "@polkadot-api/forklift",
   "type": "module",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/polkadot-api/forklift.git"
@@ -26,7 +26,8 @@
     "forklift": "./bin/cli.js"
   },
   "scripts": {
-    "build": "papi generate && tsc --noEmit && rollup -c"
+    "build": "tsc --noEmit && rollup -c",
+    "postinstall": "papi"
   },
   "devDependencies": {
     "@polkadot-labs/hdkd": "^0.0.28",

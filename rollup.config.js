@@ -55,6 +55,7 @@ export default [
       format: "es",
       sourcemap: true,
       entryFileNames: "[name].js",
+      banner: "#!/usr/bin/env node",
       paths: (id) => (id === srcIndexId ? "../dist/src/index.js" : id),
     },
   },
