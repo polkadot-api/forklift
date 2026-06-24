@@ -100,7 +100,7 @@ export const archive_v1_call: RpcMethod<{
   hash: HexString;
   function: string;
   callParameters: HexString;
-}> = async (con, req, { chain, source }) => {
+}> = async (con, req, { chain, source, getMockSignatureHost }) => {
   const {
     hash,
     function: fnName,
@@ -115,6 +115,7 @@ export const archive_v1_call: RpcMethod<{
         hash,
         call: fnName,
         params: callParameters,
+        mockSignatureHost: getMockSignatureHost(),
       });
       con.send(respond(req, { success: true, value: output.result }));
     } catch (error) {

@@ -385,7 +385,7 @@ export const chainHead_v1_call: RpcMethod<{
   hash: HexString;
   function: HexString;
   callParameters: HexString;
-}> = (con, req, { chain }) => {
+}> = (con, req, { chain, getMockSignatureHost }) => {
   const {
     followSubscription,
     hash,
@@ -428,6 +428,7 @@ export const chainHead_v1_call: RpcMethod<{
         hash,
         call: fnName,
         params: callParameters,
+        mockSignatureHost: getMockSignatureHost(),
       })
     ).subscribe({
       next: (output) =>

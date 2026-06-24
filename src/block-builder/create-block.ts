@@ -96,6 +96,7 @@ export const createBlock = async (
     parent,
     extrinsics,
     storageOverrides,
+    params.mockSignatureHost,
     params.disableOnIdle
   );
 
@@ -165,6 +166,7 @@ const buildBlock = async (
   parent: Block,
   extrinsics: Uint8Array[],
   storageOverrides: Record<HexString, HexString | null>,
+  mockSignatureHost?: boolean,
   disableIdleHook?: boolean
 ) => {
   const parentHash = parent.hash;
@@ -228,7 +230,7 @@ const buildBlock = async (
         call: "BlockBuilder_apply_extrinsic",
         params: Binary.toHex(extrinsic),
         storageOverrides,
-        mockSignatureHost: true,
+        mockSignatureHost,
       });
 
       const decodedResult = applyExtCodec.value.dec(applyResponse.result);

@@ -8,7 +8,7 @@ import type {
 import { Subscription, type Observable } from "rxjs";
 import type { DmpMessage } from "../block-builder/create-block";
 import type { Chain } from "../chain";
-import type { Forklift } from "../forklift";
+import type { Forklift, ForkliftOptions } from "../forklift";
 import type { Source } from "../source";
 import type { TxPool } from "../txPool";
 
@@ -34,6 +34,8 @@ export type ServerContext = {
   provider: JsonRpcProvider;
   txPool: TxPool;
   newBlock: Forklift["newBlock"];
+  getOptions: () => ForkliftOptions;
+  changeOptions: (opts: ForkliftOptions) => void;
   xcm: {
     pushDmp: (messages: Array<DmpMessage>) => void;
     pushUmp: (paraId: number, messages: Array<Uint8Array>) => void;
