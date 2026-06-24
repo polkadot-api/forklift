@@ -14,9 +14,9 @@
       "default": "./dist/src/index.js"
     },
     "./worker": {
-      "module": "./dist/src/executor/executor-worker.js",
-      "import": "./dist/src/executor/executor-worker.js",
-      "default": "./dist/src/executor/executor-worker.js"
+      "module": "./dist/worker.js",
+      "import": "./dist/worker.js",
+      "default": "./dist/worker.js"
     }
   },
   "main": "./dist/src/index.js",
@@ -37,6 +37,7 @@
     "@polkadot-labs/hdkd": "^0.0.28",
     "@polkadot-labs/hdkd-helpers": "^0.0.29",
     "@types/bun": "^1.3.12",
+    "esbuild": "^0.25.12",
     "rollup-plugin-dts": "^6.4.1",
     "rollup-plugin-esbuild": "^6.2.1"
   },

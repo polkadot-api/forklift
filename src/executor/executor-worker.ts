@@ -1,4 +1,4 @@
-import Comlink from "comlink";
+import { expose } from "comlink";
 import { executor } from "./executor";
 import type { RuntimeCallParams } from "./interface";
 
@@ -11,7 +11,7 @@ type RuntimeCallStorage = Pick<
   "getValue" | "getDescendantKeys"
 >;
 
-Comlink.expose({
+expose({
   ...executor,
   runRuntimeCall(
     { code, ...params }: WorkerRuntimeCallParams,

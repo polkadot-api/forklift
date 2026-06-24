@@ -1,19 +1,35 @@
 import { chmodSync, statSync } from "fs";
 import path from "path";
+import { build as esbuildBuild } from "esbuild";
 import dts from "rollup-plugin-dts";
 import esbuild from "rollup-plugin-esbuild";
 
 const commonOptions = {
-  input: ["src/index.ts", "src/executor/executor-worker.ts"],
+  input: "src/index.ts",
   external: (id) => !/^[./]/.test(id) && !/^@\//.test(id),
 };
 
 const srcIndexId = path.resolve("src/index.ts");
 
+const workerBundle = () => ({
+  name: "worker-bundle",
+  async writeBundle() {
+    await esbuildBuild({
+      entryPoints: ["src/executor/executor-worker.ts"],
+      outfile: "dist/worker.js",
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2020",
+      sourcemap: true,
+    });
+  },
+});
+
 export default [
   {
     ...commonOptions,
-    plugins: [esbuild()],
+    plugins: [esbuild(), workerBundle()],
     output: [
       {
         dir: `dist`,

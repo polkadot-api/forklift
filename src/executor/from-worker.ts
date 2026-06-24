@@ -1,4 +1,4 @@
-import Comlink from "comlink";
+import { proxy, wrap } from "comlink";
 import type {
   Executor,
   RuntimeCallParams,
@@ -23,7 +23,7 @@ type WorkerExecutor = Omit<Executor, "runRuntimeCall"> & {
 };
 
 export const fromWorker = (worker: Worker): Executor => {
-  const wrapped = Comlink.wrap<WorkerExecutor>(worker);
+  const wrapped = wrap<WorkerExecutor>(worker);
   return {
     createProof(nodes, updates) {
       return wrapped.createProof(nodes, updates);
@@ -42,7 +42,7 @@ export const fromWorker = (worker: Worker): Executor => {
           ...rest,
           code: storage.code,
         },
-        Comlink.proxy({
+        proxy({
           getValue: (key) => storage.getValue(key),
           getDescendantKeys: (prefix) => storage.getDescendantKeys(prefix),
         })
