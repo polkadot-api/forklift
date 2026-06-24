@@ -183,7 +183,6 @@ interface Forklift {
 }
 
 interface NewBlockOptions {
-  type: "best" | "finalized" | "fork";
   parent: HexString;
   unsafeBlockHeight?: number;
   disableOnIdle: boolean;

@@ -8,7 +8,6 @@ export const dev_newBlock: RpcMethod<{
     parent?: string;
     unsafeBlockHeight?: number;
     disableOnIdle?: boolean;
-    type?: "best" | "finalized" | "fork";
     storage?: Record<HexString, HexString | null>;
     transactions?: Array<HexString>;
   };

@@ -39,11 +39,7 @@ export interface Chain {
 
   getBlock: (hash: HexString) => Block | undefined;
 
-  newBlock: (
-    type: "best" | "finalized" | "fork",
-    params: CreateBlockParams
-  ) => Promise<Block>;
-  changeBest: (hash: HexString) => void;
+  newBlock: (params: CreateBlockParams) => Promise<Block>;
   changeFinalized: (hash: HexString) => void;
   setStorage: (
     hash: HexString,
@@ -395,7 +391,7 @@ export const createChain = (source: Source): Chain => {
     );
   };
 
-  const newBlock: Chain["newBlock"] = async (type, params): Promise<Block> => {
+  const newBlock: Chain["newBlock"] = async (params): Promise<Block> => {
     assertBlock(params.parent);
     assertFinalizedDescendant(params.parent);
 
@@ -421,12 +417,12 @@ export const createChain = (source: Source): Chain => {
     // Emit newBlocks$ event
     newBlocks$.next(block.hash);
 
-    // Update best/finalized based on type
-    if (type === "best") {
+    // Update best block if it became the highest
+    const previousBestHash = bestSrc$.getValue();
+    const previousBest =
+      previousBestHash && blocks$.getValue()[previousBestHash];
+    if (!previousBest || previousBest.header.number < block.header.number) {
       bestSrc$.next(block.hash);
-    } else if (type === "finalized") {
-      bestSrc$.next(block.hash);
-      finalizedSrc$.next(block.hash);
     }
 
     return block;
@@ -441,7 +437,6 @@ export const createChain = (source: Source): Chain => {
     finalized$: finalized$,
     getBlock,
     newBlock,
-    changeBest,
     changeFinalized,
     setStorage,
     getStorage,
