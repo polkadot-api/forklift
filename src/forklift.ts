@@ -73,7 +73,7 @@ export function forklift(
 ): Forklift {
   let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
   const chain = createChain(source);
-  const txPool = createTxPool(chain);
+  const txPool = createTxPool(chain, opts?.mockSignatureHost);
 
   runPrequeries(chain);
 
@@ -246,8 +246,20 @@ export function forklift(
     pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
   };
 
+  const changeOptions = (opts: ForkliftOptions) => {
+    options = { ...options, ...removeUndefinedProperties(opts) };
+    serve.setRpcOverrides(options.rpcOverrides);
+  };
   const serve = createServer(
-    { source, chain, txPool, newBlock, xcm },
+    {
+      source,
+      chain,
+      txPool,
+      newBlock,
+      xcm,
+      getOptions: () => options,
+      changeOptions,
+    },
     options.rpcOverrides
   );
 

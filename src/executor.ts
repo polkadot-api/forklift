@@ -63,7 +63,7 @@ export const runRuntimeCall = async ({
     wasm: codeHex,
     calls: [[call, [params]]],
     // 0: no mock, 1: require magic signature, 2: always valid
-    mockSignatureHost: mockSignatureHost ? 2 : 0,
+    mockSignatureHost: mockSignatureHost ? 1 : 0,
     allowUnresolvedImports: true,
     runtimeLogLevel: 0,
     storageProofSize: 1000,

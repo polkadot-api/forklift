@@ -36,7 +36,10 @@ export interface TxPool {
   txAdded$: Observable<void>;
 }
 
-export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
+export const createTxPool = (
+  chainP: Chain | Promise<Chain>,
+  mockSignatureHost?: boolean
+): TxPool => {
   const blocksTxPool: Record<HexString, BlockTxPool> = {};
   const txAdded$ = new Subject<void>();
 
@@ -73,6 +76,7 @@ export const createTxPool = (chainP: Chain | Promise<Chain>): TxPool => {
           block.hash,
         ])
       ),
+      mockSignatureHost,
     });
 
     return codec.value.dec(result.result);
