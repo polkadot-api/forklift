@@ -115,7 +115,7 @@ export const archive_v1_call: RpcMethod<{
         hash,
         call: fnName,
         params: callParameters,
-        mockSignatureHost: getOptions().mockSignatureHost,
+        mockSignatureHost: getOptions().mockSignatureHost ? 1 : 0,
       });
       con.send(respond(req, { success: true, value: output.result }));
     } catch (error) {

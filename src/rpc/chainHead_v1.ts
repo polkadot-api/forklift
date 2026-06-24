@@ -427,7 +427,7 @@ export const chainHead_v1_call: RpcMethod<{
         hash,
         call: fnName,
         params: callParameters,
-        mockSignatureHost: getOptions().mockSignatureHost,
+        mockSignatureHost: getOptions().mockSignatureHost ? 1 : 0,
       })
     ).subscribe({
       next: (output) =>

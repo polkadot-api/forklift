@@ -5,7 +5,7 @@ import { wsSource } from "./src";
 // MultiBlockElection.CurrentPhase suspicious of triggering a slow initialised
 
 const assetHubFork = forklift(
-  wsSource("wss://sys.ibp.network/asset-hub-paseo"),
+  wsSource("wss://asset-hub-polkadot-rpc.n.dwellir.com"),
   {
     disableOnIdle: true,
   }

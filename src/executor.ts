@@ -12,7 +12,7 @@ export interface ExecutorParams {
   call: string;
   params: HexString;
   storageOverrides?: Record<HexString, HexString | null>;
-  mockSignatureHost?: boolean;
+  mockSignatureHost?: 0 | 1 | 2;
 }
 
 export interface RuntimeVersion {
@@ -45,7 +45,7 @@ export const runRuntimeCall = async ({
   call,
   params,
   storageOverrides = {},
-  mockSignatureHost = false,
+  mockSignatureHost = 0,
 }: ExecutorParams): Promise<RuntimeCallResult> => {
   // Get the runtime code for the target block
   const code = chain.getBlock(hash)?.code;
@@ -63,7 +63,7 @@ export const runRuntimeCall = async ({
     wasm: codeHex,
     calls: [[call, [params]]],
     // 0: no mock, 1: require magic signature, 2: always valid
-    mockSignatureHost: mockSignatureHost ? 1 : 0,
+    mockSignatureHost,
     allowUnresolvedImports: true,
     runtimeLogLevel: 0,
     storageProofSize: 1000,

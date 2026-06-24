@@ -76,10 +76,17 @@ export const createBlock = async (
   // Create header template for Core_initialize_block
   const height = params.unsafeBlockHeight ?? parent.header.number + 1;
 
+  const timestampExt = await timestampInherent(chain, parent);
+  const validationDataExt = await setValidationDataInherent(
+    chain,
+    parent,
+    params.xcm
+  );
+  const paraEnterExt = await paraInherentEnterInherent(chain, parent);
   const extrinsics = [
-    await timestampInherent(chain, parent),
-    await setValidationDataInherent(chain, parent, params.xcm),
-    await paraInherentEnterInherent(chain, parent),
+    timestampExt,
+    validationDataExt,
+    paraEnterExt,
     ...params.transactions,
   ].filter((v) => v !== null);
 
@@ -97,7 +104,8 @@ export const createBlock = async (
     extrinsics,
     storageOverrides,
     params.mockSignatureHost,
-    params.disableOnIdle
+    params.disableOnIdle,
+    validationDataExt ?? undefined
   );
 
   // Decode the final header from runtime
@@ -167,7 +175,8 @@ const buildBlock = async (
   extrinsics: Uint8Array[],
   storageOverrides: Record<HexString, HexString | null>,
   mockSignatureHost?: boolean,
-  disableIdleHook?: boolean
+  disableIdleHook?: boolean,
+  validationDataExt?: Uint8Array
 ) => {
   const parentHash = parent.hash;
   const digests = await buildNextDigests(chain, parent);
@@ -230,7 +239,9 @@ const buildBlock = async (
         call: "BlockBuilder_apply_extrinsic",
         params: Binary.toHex(extrinsic),
         storageOverrides,
-        mockSignatureHost,
+        // Runtime validates the parent relay signature, which is mocked.
+        mockSignatureHost:
+          extrinsic === validationDataExt ? 2 : mockSignatureHost ? 1 : 0,
       });
 
       const decodedResult = applyExtCodec.value.dec(applyResponse.result);

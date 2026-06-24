@@ -76,7 +76,7 @@ export const createTxPool = (
           block.hash,
         ])
       ),
-      mockSignatureHost,
+      mockSignatureHost: mockSignatureHost ? 1 : 0,
     });
 
     return codec.value.dec(result.result);
