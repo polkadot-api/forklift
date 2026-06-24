@@ -9,13 +9,9 @@ import {
   Variant,
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
-import type { Chain } from "../chain";
+import { blockStorage, type Chain } from "../chain";
 import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
-import {
-  getRuntimeVersion,
-  runRuntimeCall,
-  type RuntimeVersion,
-} from "../executor";
+import type { RuntimeVersion } from "../executor/interface";
 import { logger } from "../logger";
 import {
   deleteValue,
@@ -146,7 +142,7 @@ export const createBlock = async (
 
   const hasNewRuntime = CODE_KEY in result.storageDiff;
   const runtime = hasNewRuntime
-    ? await getRuntimeVersion(code)
+    ? await chain.executor.getRuntimeVersion(code)
     : parent.runtime;
 
   // Create the new block
@@ -213,9 +209,8 @@ const buildBlock = async (
 
   log.debug("initialise block");
   // Call Core_initialize_block
-  const initResponse = await runRuntimeCall({
-    chain,
-    hash: parentHash,
+  const initResponse = await chain.executor.runRuntimeCall({
+    storage: blockStorage(chain, parentHash),
     call: "Core_initialize_block",
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
     storageOverrides,
@@ -233,9 +228,8 @@ const buildBlock = async (
   for (const extrinsic of extrinsics) {
     try {
       log.debug("apply extrinsic " + Binary.toHex(extrinsic));
-      const applyResponse = await runRuntimeCall({
-        chain,
-        hash: parentHash,
+      const applyResponse = await chain.executor.runRuntimeCall({
+        storage: blockStorage(chain, parentHash),
         call: "BlockBuilder_apply_extrinsic",
         params: Binary.toHex(extrinsic),
         storageOverrides,
@@ -305,9 +299,8 @@ const buildBlock = async (
       storageOverrides[key] = Binary.toHex(value);
     } catch {}
   }
-  const finalizeResponse = await runRuntimeCall({
-    chain,
-    hash: parentHash,
+  const finalizeResponse = await chain.executor.runRuntimeCall({
+    storage: blockStorage(chain, parentHash),
     call: "BlockBuilder_finalize_block",
     params: "0x",
     storageOverrides,

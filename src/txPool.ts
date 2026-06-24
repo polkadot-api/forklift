@@ -10,9 +10,8 @@ import {
   type Observable,
 } from "rxjs";
 import type { Block } from "./block-builder/create-block";
-import { finalizedAndPruned$, type Chain } from "./chain";
+import { blockStorage, finalizedAndPruned$, type Chain } from "./chain";
 import { getCallCodec } from "./codecs";
-import { runRuntimeCall } from "./executor";
 import { logger } from "./logger";
 
 const log = logger.child({ module: "txPool" });
@@ -65,9 +64,9 @@ export const createTxPool = (
     if (!codec)
       throw new Error("TaggedTransactionQueue_validate_transaction required");
 
-    const result = await runRuntimeCall({
-      chain: await chainP,
-      hash: block.hash,
+    const chain = await chainP;
+    const result = await chain.executor.runRuntimeCall({
+      storage: blockStorage(chain, block.hash),
       call: "TaggedTransactionQueue_validate_transaction",
       params: Binary.toHex(
         codec.args.enc([

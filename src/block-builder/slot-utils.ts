@@ -10,13 +10,12 @@ import {
   Vector,
   type CodecType,
 } from "@polkadot-api/substrate-bindings";
-import type { Chain } from "../chain";
+import { blockStorage, type Chain } from "../chain";
+import { getConstant, getStorageCodecs } from "../codecs";
 import { logger } from "../logger";
+import type { Block } from "./create-block";
 
 const log = logger.child({ module: "slot-utils" });
-import { getConstant, getStorageCodecs } from "../codecs";
-import { runRuntimeCall } from "../executor";
-import type { Block } from "./create-block";
 
 export const getSlotDuration = async (chain: Chain, block: Block) => {
   const babe = await getConstant(block, "Babe", "ExpectedBlockTime");
@@ -55,9 +54,8 @@ export const getCurrentSlot = async (chain: Chain, block: Block) => {
 
 const getAuraSlotDuration = async (chain: Chain, block: Block) => {
   try {
-    const { result } = await runRuntimeCall({
-      chain,
-      hash: block.hash,
+    const { result } = await chain.executor.runRuntimeCall({
+      storage: blockStorage(chain, block.hash),
       call: "AuraApi_slot_duration",
       params: "0x",
     });

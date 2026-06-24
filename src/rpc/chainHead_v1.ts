@@ -15,8 +15,7 @@ import {
   Subscription,
   withLatestFrom,
 } from "rxjs";
-import { finalizedAndPruned$, type Chain } from "../chain";
-import { runRuntimeCall } from "../executor";
+import { blockStorage, finalizedAndPruned$, type Chain } from "../chain";
 import { logger } from "../logger";
 import {
   errorResponse,
@@ -422,9 +421,8 @@ export const chainHead_v1_call: RpcMethod<{
 
   subscription.add(
     from(
-      runRuntimeCall({
-        chain,
-        hash,
+      chain.executor.runRuntimeCall({
+        storage: blockStorage(chain, hash),
         call: fnName,
         params: callParameters,
         mockSignatureHost: getOptions().mockSignatureHost ? 1 : 0,

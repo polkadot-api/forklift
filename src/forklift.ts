@@ -13,6 +13,8 @@ import { createServer } from "./serve";
 import type { Source } from "./source";
 import { createTxPool } from "./txPool";
 import { pushUmp } from "./xcm";
+import type { Executor } from "./executor/interface";
+import { executor } from "./executor/executor";
 
 const log = logger.child({ module: "forklift" });
 
@@ -41,7 +43,7 @@ export interface Forklift {
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
 
-  changeOptions: (options: Partial<ForkliftOptions>) => void;
+  changeOptions: (options: Partial<Omit<ForkliftOptions, "executor">>) => void;
   destroy: () => void;
 }
 
@@ -56,12 +58,14 @@ export interface ForkliftOptions {
   disableOnIdle?: boolean;
   mockSignatureHost?: boolean;
   rpcOverrides: Record<string, RpcMethod | null>;
+  executor: Executor;
 }
 
 const defaultOptions: ForkliftOptions = {
   buildBlockMode: Enum("timer", 100),
   finalizeMode: Enum("timer", 2000),
   rpcOverrides: {},
+  executor,
 };
 
 type Timeout = ReturnType<typeof setTimeout>;
@@ -70,7 +74,7 @@ export function forklift(
   opts?: Partial<ForkliftOptions>
 ): Forklift {
   let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
-  const chain = createChain(source);
+  const chain = createChain(source, options.executor);
   const txPool = createTxPool(chain, opts?.mockSignatureHost);
 
   runPrequeries(chain);

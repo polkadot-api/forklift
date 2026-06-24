@@ -15,7 +15,7 @@ import {
   toArray,
 } from "rxjs";
 import type { Block } from "../block-builder/create-block";
-import { runRuntimeCall } from "../executor";
+import { blockStorage } from "../chain";
 import { resolveStorageOperation, type StorageItem } from "./chainHead_v1";
 import {
   errorResponse,
@@ -110,9 +110,8 @@ export const archive_v1_call: RpcMethod<{
   const block = chain.getBlock(hash);
   if (block) {
     try {
-      const output = await runRuntimeCall({
-        chain,
-        hash,
+      const output = await chain.executor.runRuntimeCall({
+        storage: blockStorage(chain, hash),
         call: fnName,
         params: callParameters,
         mockSignatureHost: getOptions().mockSignatureHost ? 1 : 0,

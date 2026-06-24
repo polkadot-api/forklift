@@ -13,8 +13,7 @@ import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Block } from "./block-builder/create-block";
-import type { Chain } from "./chain";
-import { runRuntimeCall } from "./executor";
+import { blockStorage, type Chain } from "./chain";
 import { logger } from "./logger";
 
 const log = logger.child({ module: "codecs" });
@@ -39,9 +38,8 @@ export const setBlockMeta = async (chain: Chain, block: Block) => {
   blockMeta.set(
     block,
     new Promise(async (resolve) => {
-      const metadata = await runRuntimeCall({
-        chain,
-        hash: block.hash,
+      const metadata = await chain.executor.runRuntimeCall({
+        storage: blockStorage(chain, block.hash),
         call: "Metadata_metadata_at_version",
         params: Binary.toHex(u32.enc(15)),
       });

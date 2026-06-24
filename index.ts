@@ -1,6 +1,9 @@
 import { forklift } from "./src/forklift";
-import { createWsServer } from "./server/bun";
+// import { createWsServer } from "./server/bun";
 import { wsSource } from "./src";
+import { fromWorker } from "./src/executor/from-worker";
+
+const worker = new Worker("./src/executor/executor-worker");
 
 // MultiBlockElection.CurrentPhase suspicious of triggering a slow initialised
 
@@ -8,10 +11,13 @@ const assetHubFork = forklift(
   wsSource("wss://asset-hub-polkadot-rpc.n.dwellir.com"),
   {
     disableOnIdle: true,
+    executor: fromWorker(worker),
   }
 );
-const assetHubServer = createWsServer(assetHubFork);
-console.log("AssetHub listening at", assetHubServer.port);
+// const assetHubServer = createWsServer(assetHubFork);
+// console.log("AssetHub listening at", assetHubServer.port);
+await assetHubFork.newBlock();
+console.log("Done");
 
 // const bridgeHubFork = forklift(
 //   {

@@ -4,7 +4,7 @@ import dts from "rollup-plugin-dts";
 import esbuild from "rollup-plugin-esbuild";
 
 const commonOptions = {
-  input: "src/index.ts",
+  input: ["src/index.ts", "src/executor/executor-worker.ts"],
   external: (id) => !/^[./]/.test(id) && !/^@\//.test(id),
 };
 
@@ -25,6 +25,7 @@ export default [
   },
   {
     ...commonOptions,
+    input: "src/index.ts",
     plugins: [dts()],
     output: {
       file: `dist/index.d.ts`,

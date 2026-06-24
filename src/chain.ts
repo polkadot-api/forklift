@@ -14,7 +14,7 @@ import {
   type CreateBlockParams,
 } from "./block-builder/create-block";
 import { setBlockMeta } from "./codecs";
-import { getRuntimeVersion } from "./executor";
+import type { Executor, RuntimeCallParams } from "./executor/interface";
 import { logger } from "./logger";
 import type { Source } from "./source";
 import {
@@ -36,6 +36,7 @@ export interface Chain {
   newBlocks$: Observable<HexString>;
   best$: Observable<HexString>;
   finalized$: Observable<HexString>;
+  executor: Executor;
 
   getBlock: (hash: HexString) => Block | undefined;
 
@@ -71,7 +72,7 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-export const createChain = (source: Source): Chain => {
+export const createChain = (source: Source, executor: Executor): Chain => {
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -89,7 +90,7 @@ export const createChain = (source: Source): Chain => {
     }
 
     log.debug("code loaded, getting runtime");
-    const initialRuntime = await getRuntimeVersion(code);
+    const initialRuntime = await executor.getRuntimeVersion(code);
     log.debug("runtime loaded");
 
     const result: Block = {
@@ -120,7 +121,9 @@ export const createChain = (source: Source): Chain => {
     return result;
   });
   // Mark as a caught error
-  asyncInitialBlock.catch(() => {});
+  asyncInitialBlock.catch((ex) => {
+    log.error(ex);
+  });
 
   const getBlock = (hash: HexString) => blocks$.getValue()[hash]!;
   const assertBlock = (hash: HexString) => {
@@ -143,13 +146,6 @@ export const createChain = (source: Source): Chain => {
     if (!isDescendant(finalizedSrc$.getValue()!, hash)) {
       throw new Error(`Block is not a descendant of finalized`);
     }
-  };
-
-  const changeBest = (hash: HexString) => {
-    assertBlock(hash);
-    assertFinalizedDescendant(hash);
-
-    bestSrc$.next(hash);
   };
 
   const changeFinalized = (hash: HexString) => {
@@ -435,6 +431,7 @@ export const createChain = (source: Source): Chain => {
     newBlocks$: newBlocks$.asObservable(),
     best$: best$,
     finalized$: finalized$,
+    executor,
     getBlock,
     newBlock,
     changeFinalized,
@@ -493,3 +490,25 @@ export const finalizedAndPruned$ = (chain: Chain) =>
       };
     })
   );
+
+export const blockStorage = (
+  chain: Chain,
+  hash: HexString
+): RuntimeCallParams["storage"] => {
+  const code = chain.getBlock(hash)?.code;
+  if (!code) {
+    throw new Error(`No runtime code found at block ${hash}`);
+  }
+
+  return {
+    code,
+    async getDescendantKeys(prefix) {
+      const descendants = await chain.getStorageDescendants(hash, prefix);
+      return Object.keys(descendants);
+    },
+    async getValue(key) {
+      const node = await chain.getStorage(hash, key);
+      return node.value ?? null;
+    },
+  };
+};

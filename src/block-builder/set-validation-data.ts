@@ -1,4 +1,3 @@
-import { create_proof, decode_proof } from "@acala-network/chopsticks-executor";
 import {
   Blake2256,
   Bytes,
@@ -166,10 +165,10 @@ export const setValidationDataInherent = async (
 
   // Decode the existing proof to extract current values
   // Returns array of [key, value] pairs
-  const decodedProofArray = (await decode_proof(
+  const decodedProofArray = await chain.executor.decodeProof(
     existingStateRoot,
     existingNodes
-  )) as [HexString, HexString | null][];
+  );
 
   // Convert to a Map for easy lookup
   const decodedProof = new Map(decodedProofArray);
@@ -319,10 +318,8 @@ export const setValidationDataInherent = async (
   }
 
   // Create updated proof with all entries
-  const [newStateRoot, newNodes]: [HexString, HexString[]] = await create_proof(
-    existingNodes,
-    newEntries
-  );
+  const [newStateRoot, newNodes]: [HexString, HexString[]] =
+    await chain.executor.createProof(existingNodes, newEntries);
 
   // Keep relay_parent_descendants aligned with the new relay parent number.
   const originalDescendants: Array<RuntimeBlockHeader> =
