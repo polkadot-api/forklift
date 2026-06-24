@@ -10,8 +10,9 @@ import {
   type Observable,
 } from "rxjs";
 import type { Block } from "./block-builder/create-block";
-import { blockStorage, finalizedAndPruned$, type Chain } from "./chain";
+import { finalizedAndPruned$, type Chain } from "./chain";
 import { getCallCodec } from "./codecs";
+import { blockStorage } from "./executor/chainToStorage";
 import { logger } from "./logger";
 
 const log = logger.child({ module: "txPool" });

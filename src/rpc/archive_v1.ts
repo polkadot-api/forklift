@@ -15,7 +15,7 @@ import {
   toArray,
 } from "rxjs";
 import type { Block } from "../block-builder/create-block";
-import { blockStorage } from "../chain";
+import { blockStorage } from "../executor/chainToStorage";
 import { resolveStorageOperation, type StorageItem } from "./chainHead_v1";
 import {
   errorResponse,

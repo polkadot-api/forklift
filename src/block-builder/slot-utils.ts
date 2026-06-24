@@ -10,8 +10,9 @@ import {
   Vector,
   type CodecType,
 } from "@polkadot-api/substrate-bindings";
-import { blockStorage, type Chain } from "../chain";
+import type { Chain } from "../chain";
 import { getConstant, getStorageCodecs } from "../codecs";
+import { blockStorage } from "../executor/chainToStorage";
 import { logger } from "../logger";
 import type { Block } from "./create-block";
 

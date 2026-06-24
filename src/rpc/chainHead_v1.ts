@@ -15,7 +15,8 @@ import {
   Subscription,
   withLatestFrom,
 } from "rxjs";
-import { blockStorage, finalizedAndPruned$, type Chain } from "../chain";
+import { finalizedAndPruned$, type Chain } from "../chain";
+import { blockStorage } from "../executor/chainToStorage";
 import { logger } from "../logger";
 import {
   errorResponse,

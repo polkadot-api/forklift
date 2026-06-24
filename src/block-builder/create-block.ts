@@ -9,8 +9,9 @@ import {
   Variant,
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
-import { blockStorage, type Chain } from "../chain";
+import type { Chain } from "../chain";
 import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
+import { blockStorage } from "../executor/chainToStorage";
 import type { RuntimeVersion } from "../executor/interface";
 import { logger } from "../logger";
 import {

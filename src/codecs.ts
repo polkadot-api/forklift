@@ -13,7 +13,8 @@ import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Block } from "./block-builder/create-block";
-import { blockStorage, type Chain } from "./chain";
+import type { Chain } from "./chain";
+import { blockStorage } from "./executor/chainToStorage";
 import { logger } from "./logger";
 
 const log = logger.child({ module: "codecs" });
