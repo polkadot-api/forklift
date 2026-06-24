@@ -31,6 +31,11 @@ import {
 } from "./rpc/chainSpec_v1";
 import { dev_newBlock, dev_setStorage } from "./rpc/dev";
 import {
+  forklift_changeOptions,
+  forklift_finalize,
+  forklift_getStorageDiff,
+} from "./rpc/forklift";
+import {
   forklift_xcm_attach_relay,
   forklift_xcm_attach_sibling,
   forklift_xcm_consume_dmp,
@@ -70,6 +75,9 @@ export const methods: Record<string, RpcMethod> = {
   chainSpec_v1_properties,
   dev_newBlock,
   dev_setStorage,
+  forklift_changeOptions,
+  forklift_getStorageDiff,
+  forklift_finalize,
   forklift_xcm_attach_relay,
   forklift_xcm_attach_sibling,
   forklift_xcm_consume_dmp,

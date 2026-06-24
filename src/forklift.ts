@@ -1,6 +1,6 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
 import { Enum, type HexString } from "polkadot-api";
-import { combineLatest, firstValueFrom, merge, Subject } from "rxjs";
+import { firstValueFrom, merge, Subject } from "rxjs";
 import type {
   CreateBlockParams,
   DmpMessage,
@@ -17,7 +17,6 @@ import { pushUmp } from "./xcm";
 const log = logger.child({ module: "forklift" });
 
 export interface NewBlockOptions {
-  type: "best" | "finalized" | "fork";
   unsafeBlockHeight?: number;
   parent: HexString;
   disableOnIdle: boolean;
@@ -30,7 +29,6 @@ export interface Forklift {
   serve: JsonRpcProvider;
 
   newBlock: (opts?: Partial<NewBlockOptions>) => Promise<HexString>;
-  changeBest: (hash: HexString) => Promise<void>;
   changeFinalized: (hash: HexString) => Promise<void>;
   setStorage: (
     hash: HexString,
@@ -137,14 +135,6 @@ export function forklift(
     hrmpMsgQueues = {};
 
     try {
-      const type =
-        opts?.unsafeBlockHeight != null
-          ? "finalized"
-          : opts?.type ||
-            (options.finalizeMode.type === "timer" &&
-            options.finalizeMode.value === 0
-              ? "finalized"
-              : undefined);
       const parent = opts?.parent ?? (await firstValueFrom(chain.best$));
       const parentBlock = chain.getBlock(parent)!;
 
@@ -164,7 +154,7 @@ export function forklift(
       }
 
       logger.info("creating block");
-      const block = await chain.newBlock(type ?? "fork", {
+      const block = await chain.newBlock({
         parent,
         transactions,
         disableOnIdle: opts?.disableOnIdle ?? options.disableOnIdle ?? false,
@@ -176,25 +166,15 @@ export function forklift(
       });
       logger.info(`block ${block.hash} created`);
 
-      if (type == null) {
-        // best changes immediately if it became higher
-        const [best, blocks] = await firstValueFrom(
-          combineLatest([chain.best$, chain.blocks$])
-        );
-        if (block.header.number > blocks[best]!.header.number) {
-          chain.changeBest(block.hash);
-        }
-
-        if (options.finalizeMode.type === "timer") {
-          const timer = setTimeout(() => {
-            try {
-              chain.changeFinalized(block.hash);
-              // in cases of competing forks it can fail
-            } catch {}
-            finalizeTimers.delete(timer);
-          }, options.finalizeMode.value);
-          finalizeTimers.add(timer);
-        }
+      if (options.finalizeMode.type === "timer") {
+        const timer = setTimeout(() => {
+          try {
+            chain.changeFinalized(block.hash);
+            // in cases of competing forks it can fail
+          } catch {}
+          finalizeTimers.delete(timer);
+        }, options.finalizeMode.value);
+        finalizeTimers.add(timer);
       }
 
       return block.hash;
@@ -246,7 +226,7 @@ export function forklift(
     pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
   };
 
-  const changeOptions = (opts: ForkliftOptions) => {
+  const changeOptions = (opts: Partial<ForkliftOptions>) => {
     options = { ...options, ...removeUndefinedProperties(opts) };
     serve.setRpcOverrides(options.rpcOverrides);
   };
@@ -266,7 +246,6 @@ export function forklift(
   return {
     serve,
     newBlock: (opts) => newBlock(opts),
-    changeBest: async (hash) => chain.changeBest(hash),
     changeFinalized: async (hash) => {
       finalizeTimers.forEach(clearTimeout);
       finalizeTimers.clear();

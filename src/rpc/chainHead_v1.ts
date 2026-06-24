@@ -16,10 +16,8 @@ import {
   withLatestFrom,
 } from "rxjs";
 import { finalizedAndPruned$, type Chain } from "../chain";
-import { logger } from "../logger";
-
-const log = logger.child({ module: "chainHead_v1" });
 import { runRuntimeCall } from "../executor";
+import { logger } from "../logger";
 import {
   errorResponse,
   getParams,
@@ -27,7 +25,8 @@ import {
   respond,
   type RpcMethod,
 } from "./rpc_utils";
-import type { Block } from "../block-builder/create-block";
+
+const log = logger.child({ module: "chainHead_v1" });
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -385,7 +384,7 @@ export const chainHead_v1_call: RpcMethod<{
   hash: HexString;
   function: HexString;
   callParameters: HexString;
-}> = (con, req, { chain, getMockSignatureHost }) => {
+}> = (con, req, { chain, getOptions }) => {
   const {
     followSubscription,
     hash,
@@ -428,7 +427,7 @@ export const chainHead_v1_call: RpcMethod<{
         hash,
         call: fnName,
         params: callParameters,
-        mockSignatureHost: getMockSignatureHost(),
+        mockSignatureHost: getOptions().mockSignatureHost,
       })
     ).subscribe({
       next: (output) =>

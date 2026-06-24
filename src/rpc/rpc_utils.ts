@@ -35,7 +35,7 @@ export type ServerContext = {
   txPool: TxPool;
   newBlock: Forklift["newBlock"];
   getOptions: () => ForkliftOptions;
-  changeOptions: (opts: ForkliftOptions) => void;
+  changeOptions: (opts: Partial<ForkliftOptions>) => void;
   xcm: {
     pushDmp: (messages: Array<DmpMessage>) => void;
     pushUmp: (paraId: number, messages: Array<Uint8Array>) => void;
