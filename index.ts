@@ -2,6 +2,7 @@ import { forklift } from "./src/forklift";
 // import { createWsServer } from "./server/bun";
 import { wsSource } from "./src";
 import { fromWorker } from "./src/executor/from-worker";
+import { createClient, Enum } from "polkadot-api";
 
 const worker = new Worker("./src/executor/executor-worker");
 
@@ -16,8 +17,8 @@ const assetHubFork = forklift(
 );
 // const assetHubServer = createWsServer(assetHubFork);
 // console.log("AssetHub listening at", assetHubServer.port);
-await assetHubFork.newBlock();
-console.log("Done");
+// await assetHubFork.newBlock();
+// console.log("Done");
 
 // const bridgeHubFork = forklift(
 //   {
@@ -30,7 +31,17 @@ console.log("Done");
 // const bridgeHubServer = createWsServer(bridgeHubFork);
 // console.log("BridgeHub listening at", bridgeHubServer.port);
 
-// const assetHubClient = createClient(assetHubFork.serve);
+const assetHubClient = createClient(assetHubFork.serve);
+const baseBlock = await assetHubClient.getFinalizedBlock();
+assetHubClient.blocks$.subscribe((block) => console.log("new block", block));
+await assetHubFork.newBlock({
+  finalize: false,
+});
+await assetHubFork.newBlock({
+  parent: baseBlock.hash,
+  finalize: false,
+});
+
 // await assetHubFork.setStorage((await assetHubClient.getFinalizedBlock()).hash, {
 //   ["0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da94f9aea1afa791265fae359272badc1cf8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48"]:
 //     Binary.fromHex(
