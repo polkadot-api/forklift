@@ -10,6 +10,7 @@ export const dev_newBlock: RpcMethod<{
     disableOnIdle?: boolean;
     storage?: Record<HexString, HexString | null>;
     transactions?: Array<HexString>;
+    finalize?: boolean;
   };
 }> = async (con, req, { newBlock }) => {
   const { params } = getParams(req, ["params"]);

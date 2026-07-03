@@ -25,6 +25,7 @@ export interface NewBlockOptions {
   storage: CreateBlockParams["storage"];
   mockSignatureHost?: boolean;
   transactions: Uint8Array[];
+  finalize?: boolean;
 }
 
 export interface Forklift {
@@ -170,12 +171,18 @@ export function forklift(
       });
       logger.info(`block ${block.hash} created`);
 
-      if (block.header.number > parentBlock.header.number + 1) {
-        // Immediately finalize the block, as we have created a discontinuity
+      // Immediately finalize the block if we have created a discontinuity
+      if (
+        block.header.number > parentBlock.header.number + 1 ||
+        opts?.finalize
+      ) {
         finalizeTimers.forEach(clearTimeout);
         finalizeTimers.clear();
         chain.changeFinalized(block.hash);
-      } else if (options.finalizeMode.type === "timer") {
+      } else if (
+        options.finalizeMode.type === "timer" &&
+        opts?.finalize !== false
+      ) {
         const timer = setTimeout(() => {
           try {
             chain.changeFinalized(block.hash);
