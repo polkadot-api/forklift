@@ -72,6 +72,9 @@ export const createBlock = async (
 
   // Create header template for Core_initialize_block
   const height = params.unsafeBlockHeight ?? parent.header.number + 1;
+  if (height <= parent.header.number) {
+    throw new Error("Height can't be smaller than parent's");
+  }
 
   const timestampExt = await timestampInherent(chain, parent);
   const validationDataExt = await setValidationDataInherent(
