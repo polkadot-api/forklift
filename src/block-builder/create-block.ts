@@ -9,6 +9,7 @@ import {
   Variant,
 } from "@polkadot-api/substrate-bindings";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
+import { mergeUint8 } from "polkadot-api/utils";
 import type { Chain } from "../chain";
 import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
 import { blockStorage } from "../executor/chainToStorage";
@@ -72,6 +73,9 @@ export const createBlock = async (
 
   // Create header template for Core_initialize_block
   const height = params.unsafeBlockHeight ?? parent.header.number + 1;
+  if (height <= parent.header.number) {
+    throw new Error("Height can't be smaller than parent's");
+  }
 
   const timestampExt = await timestampInherent(chain, parent);
   const validationDataExt = await setValidationDataInherent(
@@ -105,11 +109,8 @@ export const createBlock = async (
     validationDataExt ?? undefined
   );
 
-  // Decode the final header from runtime
-  const encodedFinalHeader = Binary.fromHex(result.header);
-  const finalHeader = blockHeader.dec(encodedFinalHeader);
-
   // Compute block hash (Blake2-256 of encoded header)
+  const encodedFinalHeader = blockHeader.enc(result.header);
   const blockHash = Binary.toHex(Blake2256(encodedFinalHeader)) as HexString;
 
   // Create new storage root from parent's, applying the diff
@@ -152,7 +153,7 @@ export const createBlock = async (
     parent: parentHash,
     code,
     storageRoot: newStorageRoot,
-    header: finalHeader,
+    header: result.header,
     runtime,
     body: result.body,
     hasNewRuntime: hasNewRuntime || undefined,
@@ -177,6 +178,7 @@ const buildBlock = async (
 ) => {
   const parentHash = parent.hash;
   const digests = await buildNextDigests(chain, parent);
+  const sealDigests = digests.filter((digest) => digest.type === "seal");
 
   const provisionalHeader: BlockHeader = {
     parentHash,
@@ -316,13 +318,22 @@ const buildBlock = async (
     ...Object.fromEntries(finalizeResponse.storageDiff),
   };
 
+  const postRuntimeHeader = blockHeader.dec(finalizeResponse.result);
+  // Must add the seal digests, as these are added by the node after the runtime does their thing.
+  // In reality, the seal is a signature of the result, but we're mocking it here. We already generated it because this way we keep the same engine.
+  const header = {
+    ...postRuntimeHeader,
+    digests: [...postRuntimeHeader.digests, ...sealDigests],
+  };
+
   return {
-    header: finalizeResponse.result,
+    header,
     body,
     storageDiff: storageOverrides,
   };
 };
 
+const DEAD_BEEF = Binary.fromHex("0xDEADBEEF");
 const buildNextDigests = async (chain: Chain, parent: Block) => {
   const currentSlot = await getCurrentSlot(chain, parent);
   const nextSlot = currentSlot + 1n;
@@ -333,6 +344,19 @@ const buildNextDigests = async (chain: Chain, parent: Block) => {
   }
 
   return parent.header.digests.map((digest) => {
+    if (digest.type === "seal") {
+      const payloadLength = Binary.fromHex(digest.value.payload).length;
+      const randomPayload = Uint8Array.from(
+        { length: payloadLength - 4 },
+        () => Math.random() * 256
+      );
+      const payload = mergeUint8([DEAD_BEEF, randomPayload]);
+      return Enum("seal", {
+        engine: digest.value.engine,
+        payload: Binary.toHex(payload),
+      });
+    }
+
     if (digest.type !== "preRuntime") return digest;
     if (digest.value.engine === "aura") {
       return Enum("preRuntime", {
