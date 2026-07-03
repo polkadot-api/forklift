@@ -170,7 +170,12 @@ export function forklift(
       });
       logger.info(`block ${block.hash} created`);
 
-      if (options.finalizeMode.type === "timer") {
+      if (block.header.number > parentBlock.header.number + 1) {
+        // Immediately finalize the block, as we have created a discontinuity
+        finalizeTimers.forEach(clearTimeout);
+        finalizeTimers.clear();
+        chain.changeFinalized(block.hash);
+      } else if (options.finalizeMode.type === "timer") {
         const timer = setTimeout(() => {
           try {
             chain.changeFinalized(block.hash);
