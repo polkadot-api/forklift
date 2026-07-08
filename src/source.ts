@@ -65,7 +65,7 @@ export const wsSource = (
             return log.error({ error: evt.error }, evt.type);
           case SocketEvents.IN:
           case SocketEvents.OUT:
-            return log.trace({ msg: evt.msg }, evt.type);
+            return log.trace({ payload: evt.msg }, evt.type);
           default:
             return log.info(evt.type);
         }

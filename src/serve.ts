@@ -1,4 +1,7 @@
-import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
+import {
+  type JsonRpcMessage,
+  type JsonRpcProvider,
+} from "@polkadot-api/substrate-client";
 import { filterObject } from "polkadot-api/utils";
 import { Subject } from "rxjs";
 import { logger } from "./logger";
@@ -104,8 +107,10 @@ export const createServer = (
     );
   let activeMethods = getActiveMethods(rpcOverrides);
 
-  const provider: JsonRpcProvider = (send) => {
+  const provider: JsonRpcProvider = (_send) => {
+    let disconnected = false;
     const disconnect = new Subject<void>();
+    const send = (msg: JsonRpcMessage) => (disconnected ? null : _send(msg));
     const con: Connection = {
       send,
       disconnect$: disconnect.asObservable(),
@@ -116,7 +121,10 @@ export const createServer = (
     };
 
     return {
-      disconnect() {},
+      disconnect() {
+        disconnect.next();
+        disconnected = true;
+      },
       async send(req) {
         if (req.method === "rpc_methods") {
           return send({
