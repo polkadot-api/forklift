@@ -275,6 +275,7 @@ export const chainHead_v1_storage: RpcMethod = (
         ),
       error: (e) => {
         log.error(e, "storage operation error");
+        cleanup();
         con.send(
           followEvent(followSubscription, {
             event: "operationError",
@@ -282,16 +283,15 @@ export const chainHead_v1_storage: RpcMethod = (
             error: e.message,
           })
         );
-        cleanup();
       },
       complete: () => {
+        cleanup();
         con.send(
           followEvent(followSubscription, {
             event: "operationStorageDone",
             operationId: opId,
           })
         );
-        cleanup();
       },
     })
   );
@@ -429,14 +429,16 @@ export const chainHead_v1_call: RpcMethod<{
         mockSignatureHost: getOptions().mockSignatureHost ? 1 : 0,
       })
     ).subscribe({
-      next: (output) =>
+      next: (output) => {
+        cleanup();
         con.send(
           followEvent(followSubscription, {
             event: "operationCallDone",
             operationId: opId,
             output: output.result,
           })
-        ),
+        );
+      },
       error: (e) => {
         log.error(e, "call operation error");
         con.send(
