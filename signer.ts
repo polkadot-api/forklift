@@ -3,7 +3,7 @@ import {
   entropyToMiniSecret,
   mnemonicToEntropy,
 } from "@polkadot-labs/hdkd-helpers";
-import { getTxCreator } from "polkadot-api/signer";
+import { getTxCreator } from "polkadot-api/tx-creator";
 
 const alice_mnemonic =
   "bottom drive obey lake curtain smoke basket hold race lonely fit walk";
