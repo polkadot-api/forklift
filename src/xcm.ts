@@ -1,4 +1,3 @@
-import { parachain, relay } from "../.papi/descriptors/dist";
 import { concatMapEager } from "@polkadot-api/observable-client";
 import {
   bool,
@@ -15,13 +14,11 @@ import {
   type PolkadotClient,
 } from "polkadot-api";
 import { catchError, filter, firstValueFrom, from, map } from "rxjs";
+import { parachain, relay } from "../.papi/descriptors/dist";
 import type { DmpMessage } from "./block-builder/create-block";
 import type { Chain } from "./chain";
 import { getConstant, getStorageCodecs } from "./codecs";
 import { getNode, insertValue } from "./storage";
-import { logger } from "./logger";
-
-const log = logger.child({ module: "xcm" });
 
 /**
  * Attaches the current forklift as a parachain to a forklift relay chain.
@@ -34,6 +31,7 @@ export const attachRelay = async (
     pushDmp: (messages: Array<DmpMessage>) => void;
   }
 ) => {
+  const log = chain.logger.child({ module: "xcm" });
   const paraId: number | null = await getConstant(
     chain.getBlock(await firstValueFrom(chain.finalized$))!,
     "ParachainSystem",
@@ -120,6 +118,7 @@ export const consumeDmp = async (
   hash: HexString,
   paraId: number
 ) => {
+  const log = chain.logger.child({ module: "xcm" });
   const blocks = await firstValueFrom(chain.blocks$);
   const targetBlock = blocks[hash];
   if (!targetBlock) {
@@ -328,6 +327,7 @@ export const attachSibling = async (
   chain: Chain,
   xcm: { pushHrmp: (senderId: number, messages: Uint8Array[]) => void }
 ) => {
+  const log = chain.logger.child({ module: "xcm" });
   const selfParaId: number | null = await getConstant(
     chain.getBlock(await firstValueFrom(chain.finalized$))!,
     "ParachainSystem",

@@ -2,9 +2,6 @@ import { Binary, createClient, type HexString } from "polkadot-api";
 import { createWsClient } from "polkadot-api/ws";
 import { attachRelay, attachSibling, consumeDmp } from "../xcm";
 import { errorResponse, getParams, respond, type RpcMethod } from "./rpc_utils";
-import { logger } from "../logger";
-
-const log = logger.child({ module: "forklift_xcm" });
 
 /*** Para -> Relay ***/
 
@@ -16,6 +13,7 @@ export const forklift_xcm_attach_relay: RpcMethod<{ url: string }> = async (
   req,
   { chain, xcm, provider }
 ) => {
+  const log = chain.logger.child({ module: "forklift_xcm" });
   try {
     const { url } = getParams(req, ["url"]);
 
@@ -48,6 +46,7 @@ export const forklift_xcm_attach_sibling: RpcMethod<{ url: string }> = async (
   req,
   { chain, xcm, provider }
 ) => {
+  const log = chain.logger.child({ module: "forklift_xcm" });
   try {
     const { url } = getParams(req, ["url"]);
 
@@ -82,6 +81,7 @@ export const forklift_xcm_consume_dmp: RpcMethod<{
   hash: HexString;
   paraId: number;
 }> = async (con, req, { chain }) => {
+  const log = chain.logger.child({ module: "forklift_xcm" });
   const { hash, paraId } = getParams(req, ["hash", "paraId"]);
 
   try {
@@ -105,7 +105,8 @@ export const forklift_xcm_consume_dmp: RpcMethod<{
 export const forklift_xcm_push_hrmp: RpcMethod<{
   senderId: number;
   messages: HexString[];
-}> = async (con, req, { xcm }) => {
+}> = async (con, req, { xcm, chain }) => {
+  const log = chain.logger.child({ module: "forklift_xcm" });
   const { senderId, messages } = getParams(req, ["senderId", "messages"]);
 
   try {
@@ -136,7 +137,8 @@ export const forklift_xcm_open_hrmp_channel: RpcMethod<{
 export const forklift_xcm_push_ump: RpcMethod<{
   paraId: number;
   messages: HexString[];
-}> = async (con, req, { xcm }) => {
+}> = async (con, req, { xcm, chain }) => {
+  const log = chain.logger.child({ module: "forklift_xcm" });
   const { paraId, messages } = getParams(req, ["paraId", "messages"]);
 
   try {

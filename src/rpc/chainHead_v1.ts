@@ -17,7 +17,6 @@ import {
 } from "rxjs";
 import { finalizedAndPruned$, type Chain } from "../chain";
 import { blockStorage } from "../executor/chainToStorage";
-import { logger } from "../logger";
 import {
   errorResponse,
   getParams,
@@ -25,8 +24,6 @@ import {
   respond,
   type RpcMethod,
 } from "./rpc_utils";
-
-const log = logger.child({ module: "chainHead_v1" });
 
 const followEvent = (subscription: string, result: any): JsonRpcMessage => ({
   jsonrpc: "2.0",
@@ -50,6 +47,7 @@ const blockNotReadable = (req: JsonRpcRequest) =>
 export const chainHead_v1_follow: RpcMethod<{
   withRuntime: boolean;
 }> = async (con, req, { chain }) => {
+  const log = chain.logger.child({ module: "chainHead_v1" });
   const { withRuntime } = getParams(req, ["withRuntime"]);
 
   const subId = getUuid();
@@ -228,6 +226,7 @@ export const chainHead_v1_storage: RpcMethod = (
   }>,
   { chain }
 ) => {
+  const log = chain.logger.child({ module: "chainHead_v1" });
   const { followSubscription, hash, items, childTrie } = getParams(req, [
     "followSubscription",
     "hash",
@@ -385,6 +384,7 @@ export const chainHead_v1_call: RpcMethod<{
   function: HexString;
   callParameters: HexString;
 }> = (con, req, { chain, getOptions }) => {
+  const log = chain.logger.child({ module: "chainHead_v1" });
   const {
     followSubscription,
     hash,

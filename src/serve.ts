@@ -4,7 +4,6 @@ import {
 } from "@polkadot-api/substrate-client";
 import { filterObject } from "polkadot-api/utils";
 import { Subject } from "rxjs";
-import { logger } from "./logger";
 import {
   archive_v1_body,
   archive_v1_call,
@@ -52,8 +51,6 @@ import {
   transaction_v1_stop,
 } from "./rpc/transaction_v1";
 
-const log = logger.child({ module: "serve" });
-
 export const methods: Record<string, RpcMethod> = {
   archive_v1_body,
   archive_v1_call,
@@ -97,6 +94,7 @@ export const createServer = (
 ): JsonRpcProvider & {
   setRpcOverrides: (rpcOverrides: Record<string, RpcMethod | null>) => void;
 } => {
+  const log = ctx.chain.logger.child({ module: "serve" });
   const getActiveMethods = (overrides: Record<string, RpcMethod | null>) =>
     filterObject(
       {

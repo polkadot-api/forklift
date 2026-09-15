@@ -392,7 +392,8 @@ export const setValidationDataInherent = async (
     {
       data,
       inbound_messages_data,
-    }
+    },
+    chain.logger
   );
   return unsignedExtrinsic(callData!);
 };

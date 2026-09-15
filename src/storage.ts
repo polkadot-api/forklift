@@ -1,7 +1,4 @@
-import { Binary, Blake2128 } from "@polkadot-api/substrate-bindings";
-import { logger } from "./logger";
-
-const log = logger.child({ module: "storage" });
+import { Blake2128 } from "@polkadot-api/substrate-bindings";
 
 const TRIE_SIZE = 16;
 export interface StorageNode {
@@ -158,15 +155,6 @@ export const getNode = (
   nibbles: number,
   offset = 0
 ): StorageNode | null => {
-  // if (offset === 0) console.log("getNode", Binary.toHex(key), nibbles);
-  if (
-    offset === 0 &&
-    Binary.toHex(key) ===
-      "0x26aa394eea5630e07c48ae0c9558cef734abf5cb34d6244378cddbf18e849d96"
-  ) {
-    log.debug("Block.Weight requested");
-  }
-
   if (offset === nibbles) return root;
   const nibble = getNibble(key, offset);
   if (nibble == null) throw new Error("Key overflow");

@@ -8,13 +8,13 @@ import {
   u64,
   Variant,
 } from "@polkadot-api/substrate-bindings";
+import type { Logger } from "pino";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Chain } from "../chain";
 import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
 import { blockStorage } from "../executor/chainToStorage";
 import type { RuntimeVersion } from "../executor/interface";
-import { logger } from "../logger";
 import {
   deleteValue,
   getNode,
@@ -25,8 +25,6 @@ import { paraInherentEnterInherent } from "./para-enter";
 import { setValidationDataInherent } from "./set-validation-data";
 import { getCurrentSlot } from "./slot-utils";
 import { timestampInherent } from "./timestamp";
-
-const log = logger.child({ module: "block-builder" });
 
 export interface CreateBlockParams {
   parent: HexString;
@@ -66,6 +64,7 @@ export const createBlock = async (
   chain: Chain,
   params: CreateBlockParams
 ): Promise<Block> => {
+  const log = chain.logger.child({ module: "block-builder" });
   // Determine parent block
   const parentHash = params.parent;
   const parent = chain.getBlock(parentHash);
@@ -100,6 +99,7 @@ export const createBlock = async (
 
   const result = await buildBlock(
     chain,
+    log,
     height,
     parent,
     extrinsics,
@@ -168,6 +168,7 @@ export const createBlock = async (
 
 const buildBlock = async (
   chain: Chain,
+  log: Logger,
   height: number,
   parent: Block,
   extrinsics: Uint8Array[],

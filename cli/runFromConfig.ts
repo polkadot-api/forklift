@@ -12,6 +12,7 @@ import {
 } from "@polkadot-api/substrate-client";
 import { Binary, createClient, Enum, type HexString } from "polkadot-api";
 import { getWsRawProvider } from "polkadot-api/ws";
+import { catchError, finalize, from, mergeMap, repeat } from "rxjs";
 import { createWsServer } from "../server/node";
 import { forklift, forkliftSource, wsSource } from "../src";
 import type {
@@ -20,8 +21,6 @@ import type {
   RawStorageOverride,
 } from "./config";
 import { log } from "./log";
-import { catchError, finalize, from, mergeMap, repeat, retry, tap } from "rxjs";
-import { withLogsRecorder } from "polkadot-api/logs-provider";
 
 export const runFromConfig = async (config: ParsedConfig) => {
   const chains =
@@ -107,6 +106,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
   const f = forklift(
     wsSource(config.endpoint, {
       atBlock: config.block,
+      logger: logWithKey,
     }),
     {
       buildBlockMode:
@@ -121,6 +121,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
           : Enum("timer", config.options.finalizeMode.timer)),
       disableOnIdle: config.options?.disableOnIdle,
       mockSignatureHost: config.options?.mockSignatureHost,
+      logger: logWithKey,
     }
   );
 
@@ -208,7 +209,8 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
           const subForklift = forklift(
             forkliftSource(f, {
               atBlock: block.hash,
-            })
+            }),
+            { logger: null }
           );
 
           return from(subForklift.newBlock()).pipe(

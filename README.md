@@ -256,16 +256,20 @@ You can also create a chain from code:
 
 ```ts
 import { forklift, wsSource } from "@polkadot-api/forklift";
+import pino from "pino";
 import { Enum } from "polkadot-api";
 
+const logger = pino({ level: "debug" }); // Optional, to customize the logger.
 const polkadot = forklift(
   wsSource("wss://rpc.polkadot.io", {
     atBlock: 22000000,
+    logger,
   }),
   {
     buildBlockMode: Enum("timer", 100),
     finalizeMode: Enum("timer", 2000),
     disableOnIdle: false,
+    logger,
   }
 );
 ```
@@ -316,6 +320,9 @@ Bun.serve({
   },
 });
 ```
+
+The supplied Pino logger receives all logs produced by that Forklift instance.
+When omitted, Forklift creates a default logger for the instance.
 
 ### `Forklift` interface
 

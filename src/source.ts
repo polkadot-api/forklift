@@ -6,12 +6,13 @@ import {
 } from "@polkadot-api/substrate-client";
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
+import type { Logger } from "pino";
 import { Binary, type BlockHeader, type HexString } from "polkadot-api";
 import { mapObject } from "polkadot-api/utils";
 import { firstValueFrom } from "rxjs";
 import type { Chain } from "./chain";
 import type { Forklift } from "./forklift";
-import { logger } from "./logger";
+import { createLogger } from "./logger";
 
 export interface Source {
   block: Promise<{
@@ -54,9 +55,12 @@ export const wsSource = (
   url: string | string[],
   options: {
     atBlock?: number | string;
+    logger?: Logger;
   } = {}
 ): Source => {
-  const log = logger.child({ module: "remote-source" });
+  const log = (options.logger ?? createLogger()).child({
+    module: "remote-source",
+  });
 
   const substrateClient = createClient(
     getWsProvider(url, {
