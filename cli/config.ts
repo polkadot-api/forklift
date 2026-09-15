@@ -44,6 +44,7 @@ export type ParsedChainConfig = {
     mockSignatureHost?: boolean;
   };
   storage?: StorageOverride[];
+  preloadBlocks?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -171,6 +172,8 @@ function parseChainConfig(raw: unknown, name: string): ParsedChainConfig {
     if (typeof r.options !== "object" || r.options === null)
       throw new Error(`Chain "${name}": "options" must be an object`);
     const o = r.options as Record<string, unknown>;
+    if (o.mockSignatureHost !== undefined)
+      options.mockSignatureHost = Boolean(o.mockSignatureHost);
     if (o.disableOnIdle !== undefined)
       options.disableOnIdle = Boolean(o.disableOnIdle);
     if (o.buildBlockMode !== undefined)
@@ -205,6 +208,7 @@ function parseChainConfig(raw: unknown, name: string): ParsedChainConfig {
     }),
     ...(Object.keys(options).length > 0 && { options }),
     ...(storage.length > 0 && { storage }),
+    ...(r.preloadBlocks ? { preloadBlocks: true } : {}),
   };
 }
 

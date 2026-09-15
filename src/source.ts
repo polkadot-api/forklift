@@ -7,6 +7,10 @@ import {
 import { middleware } from "@polkadot-api/ws-middleware";
 import { getWsProvider, SocketEvents } from "@polkadot-api/ws-provider";
 import { Binary, type BlockHeader, type HexString } from "polkadot-api";
+import { mapObject } from "polkadot-api/utils";
+import { firstValueFrom } from "rxjs";
+import type { Chain } from "./chain";
+import type { Forklift } from "./forklift";
 import { logger } from "./logger";
 
 export interface Source {
@@ -190,5 +194,56 @@ export const wsSource = (
       getHashByHeight: (height) => archive.hashByHeight(height),
       storageSubscription: archive.storageSubscription,
     },
+  };
+};
+
+export const forkliftSource = (
+  forklift: Forklift,
+  options: {
+    atBlock?: string;
+  } = {}
+): Source => {
+  // @ts-expect-error
+  const chain: Chain = forklift.__chain;
+  // @ts-expect-error
+  const source: Source = forklift.__source;
+
+  const blockHash = Promise.resolve(
+    options.atBlock ?? firstValueFrom(chain.finalized$)
+  );
+
+  const block = blockHash.then((hash) => {
+    const block = chain.getBlock(hash);
+    if (!block)
+      throw new Error(
+        `Block ${hash} not found. It must be the finalized or one of its descendants.`
+      );
+
+    return {
+      blockHash: block.hash,
+      header: block.header,
+      body: block.body,
+    };
+  });
+
+  return {
+    block,
+    getChainSpecData: () => source.getChainSpecData(),
+    getStorage: async (key) => {
+      const hash = await blockHash;
+      const storageNode = await chain.getStorage(hash, key);
+      return storageNode.value ?? null;
+    },
+    getStorageBatch: async (keys) => {
+      const hash = await blockHash;
+      const nodes = await chain.getStorageBatch(hash, keys);
+      return nodes.map((v) => v.value ?? null);
+    },
+    getStorageDescendants: async (prefix) => {
+      const hash = await blockHash;
+      const nodes = await chain.getStorageDescendants(hash, prefix);
+      return mapObject(nodes, (v) => v.value!);
+    },
+    destroy() {},
   };
 };

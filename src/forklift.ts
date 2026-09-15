@@ -15,6 +15,7 @@ import { createTxPool } from "./txPool";
 import { pushUmp } from "./xcm";
 import type { Executor } from "./executor/interface";
 import { executor } from "./executor/executor";
+import { mergeWithKey } from "@react-rxjs/utils";
 
 const log = logger.child({ module: "forklift" });
 
@@ -290,6 +291,9 @@ export function forklift(
       txPool.destroy();
       source.destroy();
     },
+    // @ts-expect-error
+    __chain: chain,
+    __source: source,
   };
 }
 

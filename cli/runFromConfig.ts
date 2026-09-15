@@ -10,16 +10,18 @@ import {
   createClient as createRawClient,
   type SubstrateClient,
 } from "@polkadot-api/substrate-client";
-import { Binary, Enum, type HexString } from "polkadot-api";
-import { createWsClient, getWsRawProvider } from "polkadot-api/ws";
+import { Binary, createClient, Enum, type HexString } from "polkadot-api";
+import { getWsRawProvider } from "polkadot-api/ws";
 import { createWsServer } from "../server/node";
-import { forklift, wsSource } from "../src";
+import { forklift, forkliftSource, wsSource } from "../src";
 import type {
   ParsedChainConfig,
   ParsedConfig,
   RawStorageOverride,
 } from "./config";
 import { log } from "./log";
+import { catchError, finalize, from, mergeMap, repeat, retry, tap } from "rxjs";
+import { withLogsRecorder } from "polkadot-api/logs-provider";
 
 export const runFromConfig = async (config: ParsedConfig) => {
   const chains =
@@ -126,7 +128,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
 
   if (config.storage) {
     logWithKey.info(`Waiting for initial block`);
-    const client = createWsClient(`ws://localhost:${server.port}`);
+    const client = createClient(f.serve);
     const finalized = await client.getFinalizedBlock();
 
     logWithKey.info(`Overriding storage`);
@@ -194,6 +196,29 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
       server.port
     }`
   );
+
+  if (config.preloadBlocks) {
+    logWithKey.info(`Setting up block preload`);
+    const client = createClient(f.serve);
+    client.blocks$
+      .pipe(
+        repeat(),
+        mergeMap((block) => {
+          logWithKey.trace(`Preloading new block from ${block.hash}`);
+          const subForklift = forklift(
+            forkliftSource(f, {
+              atBlock: block.hash,
+            })
+          );
+
+          return from(subForklift.newBlock()).pipe(
+            catchError(() => []),
+            finalize(() => subForklift.destroy())
+          );
+        })
+      )
+      .subscribe();
+  }
 
   return [key, server.port!] as const;
 };
