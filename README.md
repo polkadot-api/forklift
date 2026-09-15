@@ -137,14 +137,15 @@ That makes the config suitable for relay/parachain and parachain/parachain XCM t
 
 Each chain config supports the following fields:
 
-| Field         | Type                 | Description                                         |
-| ------------- | -------------------- | --------------------------------------------------- |
-| `endpoint`    | `string \| string[]` | Remote WebSocket endpoint or endpoints to fork from |
-| `block`       | `number \| string`   | Optional block number or block hash to fork from    |
-| `port`        | `number`             | Preferred local WebSocket port                      |
-| `parachainOf` | `string`             | Name of the relay chain in a multi-chain config     |
-| `options`     | `object`             | Forklift runtime options                            |
-| `storage`     | `array`              | Storage overrides applied after startup             |
+| Field           | Type                 | Description                                         |
+| --------------- | -------------------- | --------------------------------------------------- |
+| `endpoint`      | `string \| string[]` | Remote WebSocket endpoint or endpoints to fork from |
+| `block`         | `number \| string`   | Optional block number or block hash to fork from    |
+| `port`          | `number`             | Preferred local WebSocket port                      |
+| `parachainOf`   | `string`             | Name of the relay chain in a multi-chain config     |
+| `options`       | `object`             | Forklift runtime options                            |
+| `storage`       | `array`              | Storage overrides applied after startup             |
+| `preloadBlocks` | `boolean`            | Preload blocks for faster block creation            |
 
 ### `options`
 
@@ -157,6 +158,7 @@ options:
     timer: 100
   finalizeMode:
     timer: 2000
+  mockSignatureHost: true
 ```
 
 Supported values:
@@ -196,11 +198,24 @@ Supported values:
     timer: 2000
   ```
 
+- `mockSignatureHost`
+  Sets up a flag to accept extrinsics with invalid proofs.
+
 Notes:
 
 - `manual` means forklift only changes state when you explicitly drive it
 - `{ timer: 0 }` is allowed and means immediate scheduling
 - if `port` is omitted, forklift will choose a free port automatically
+
+### Preload blocks
+
+Setting up `preloadBlocks` will make the CLI create new blocks in the background from every new tip of the forklift instance.
+
+Creating a block can be a slow operation because the runtime asks for storage values one-by-one, which adds round-trip latency to the source that can add up to dozens of seconds.
+
+`preloadBlocks` spins up a new fork in the background that doesn't affect the main one and simulates creating a new block as soon as any new tip is added to the original instance. This causes the storage entries that are likely to be requested on the next block to be loaded, greatly improving performance.
+
+It comes with the tradeoff that creating a block is resource-intensive, even when running in the background.
 
 ## Storage Overrides
 

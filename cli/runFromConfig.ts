@@ -14,7 +14,7 @@ import { Binary, createClient, Enum, type HexString } from "polkadot-api";
 import { getWsRawProvider } from "polkadot-api/ws";
 import { catchError, finalize, from, mergeMap, repeat } from "rxjs";
 import { createWsServer } from "../server/node";
-import { forklift, forkliftSource, wsSource } from "../src";
+import { forklift, forkliftSource, fromWorker, wsSource } from "../src";
 import type {
   ParsedChainConfig,
   ParsedConfig,
@@ -206,16 +206,20 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
         repeat(),
         mergeMap((block) => {
           logWithKey.trace(`Preloading new block from ${block.hash}`);
+          const worker = new Worker("../src/executor/executor-worker");
           const subForklift = forklift(
             forkliftSource(f, {
               atBlock: block.hash,
             }),
-            { logger: null }
+            { logger: null, executor: fromWorker(worker) }
           );
 
           return from(subForklift.newBlock()).pipe(
             catchError(() => []),
-            finalize(() => subForklift.destroy())
+            finalize(() => {
+              subForklift.destroy();
+              worker.terminate();
+            })
           );
         })
       )
