@@ -35,8 +35,25 @@ export const createWsServer = async (
         }
       });
 
+      let alive = true;
+      ws.on("pong", () => {
+        alive = true;
+      });
+      const pingInterval = setInterval(() => {
+        if (!alive) {
+          clearInterval(pingInterval);
+          ws.terminate();
+          return;
+        }
+
+        alive = false;
+        ws.ping();
+      }, 10_000);
+      ws.ping();
+
       ws.on("close", () => {
         connection.disconnect();
+        clearInterval(pingInterval);
       });
     });
 
