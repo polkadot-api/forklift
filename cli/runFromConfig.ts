@@ -94,7 +94,8 @@ const rawClientRequest = (
   );
 
 const startChain = async (config: ParsedChainConfig, key?: string) => {
-  const logWithKey = log ? log.child({ chain: key }) : log;
+  const logWithKey = key ? log.child({ chain: key }) : log;
+
   logWithKey.info(
     `Forking ${config.endpoint}${
       config.block !== undefined ? ` at block ${config.block}` : ""

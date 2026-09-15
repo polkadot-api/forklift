@@ -213,15 +213,20 @@ export function forklift(
   };
 
   let txBlockPending = false;
-  const txPoolSub = merge(
-    txPool.txAdded$,
-    dmpSubject,
-    umpSubject,
-    hrmpSubject
-  ).subscribe(() => {
-    if (options.buildBlockMode.type === "manual") return;
+  const txPoolSub = mergeWithKey({
+    txPool: txPool.txAdded$,
+    dmpMsg: dmpSubject,
+    umpMsg: umpSubject,
+    hrmpMsg: hrmpSubject,
+  }).subscribe((evt) => {
+    logger.trace(`TxPool updated. Source ${evt.type}`);
+
+    logger.trace(options.buildBlockMode, `BuildBlockMode`);
+    if (options.buildBlockMode.type === "manual") {
+      return;
+    }
     if (txBlockPending || blocksEnqueued) {
-      // Another tx has triggered a new block, this will get included
+      logger.trace(`New block already enqueued, skipping`);
       return;
     }
 
@@ -232,7 +237,11 @@ export function forklift(
     txBlockPending = true;
     setTimeout(() => {
       txBlockPending = false;
-      if (!blocksEnqueued) newBlock(undefined, true);
+      if (blocksEnqueued) {
+        logger.trace(`New block already enqueued, skipping`);
+      } else {
+        newBlock(undefined, true);
+      }
     }, delay);
   });
 

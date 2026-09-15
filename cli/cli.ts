@@ -14,7 +14,7 @@ program
   .option(
     "-l, --log-level <level>",
     "log level (trace|debug|info|warn|error|fatal)",
-    "info"
+    process?.env?.LOG_LEVEL ?? "info"
   )
   .action(
     async (
