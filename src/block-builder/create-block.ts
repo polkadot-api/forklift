@@ -212,6 +212,7 @@ const buildBlock = async (
   }
 
   log.debug("initialise block");
+  chain.resetStats();
   // Call Core_initialize_block
   const initResponse = await chain.executor.runRuntimeCall({
     storage: blockStorage(chain, parentHash),
@@ -219,6 +220,7 @@ const buildBlock = async (
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
     storageOverrides,
   });
+  const initStats = { ...chain.storageStats };
 
   // console.log("init storageDiff", Object.fromEntries(initResponse.storageDiff));
 
@@ -228,6 +230,7 @@ const buildBlock = async (
     ...Object.fromEntries(initResponse.storageDiff),
   };
 
+  chain.resetStats();
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
@@ -264,6 +267,7 @@ const buildBlock = async (
       log.error(ex, "failed to apply extrinsic");
     }
   }
+  const applyExtrinsicStats = { ...chain.storageStats };
 
   log.debug("finalize block");
   let originalWeight:
@@ -273,6 +277,7 @@ const buildBlock = async (
       }
     | undefined;
 
+  chain.resetStats();
   if (disableIdleHook) {
     // on_idle hook only triggers if either:
     //  - no migrations are happenning
@@ -309,6 +314,17 @@ const buildBlock = async (
     params: "0x",
     storageOverrides,
   });
+  const finalizeStats = { ...chain.storageStats };
+
+  log.info(
+    {
+      initialize: initStats,
+      applyExtrinsic: applyExtrinsicStats,
+      finalize: finalizeStats,
+    },
+    "block creation storage stats"
+  );
+
   if (originalWeight) {
     storageOverrides[originalWeight.key] = originalWeight.value;
   }

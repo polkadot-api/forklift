@@ -46,6 +46,8 @@ export interface Chain {
     changes: Record<HexString, Uint8Array | null>
   ) => void;
 
+  storageStats: { hits: number; misses: number };
+  resetStats: () => void;
   getStorage: (hash: HexString, key: HexString) => Promise<StorageNode>;
   getStorageBatch: (
     hash: HexString,
@@ -162,6 +164,15 @@ export const createChain = (
     finalizedSrc$.next(hash);
   };
 
+  const storageStats = {
+    hits: 0,
+    misses: 0,
+  };
+  const resetStats = () => {
+    storageStats.hits = 0;
+    storageStats.misses = 0;
+  };
+
   const setStorage = (
     hash: HexString,
     changes: Record<HexString, Uint8Array | null>
@@ -201,8 +212,10 @@ export const createChain = (
       getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
 
     if (node?.value !== undefined) {
+      storageStats.hits++;
       return node;
     }
+    storageStats.misses++;
 
     const sourceResult = await source.getStorage(key);
     initialBlock.storageRoot = insertValue(
@@ -243,9 +256,13 @@ export const createChain = (
       return null!;
     });
 
-    const loadedResults = await source.getStorageBatch(
-      pending.map(({ key }) => key)
-    );
+    if (pending.length) storageStats.misses++;
+    else storageStats.hits++;
+
+    const loadedResults = await (pending.length
+      ? source.getStorageBatch(pending.map(({ key }) => key))
+      : Promise.resolve([]));
+
     loadedResults.forEach((res, i) => {
       const { idx, binKey } = pending[i]!;
       initialBlock.storageRoot = insertValue(
@@ -287,6 +304,7 @@ export const createChain = (
       binPrefix.length * 2
     );
     if (blockNode?.exhaustive) {
+      storageStats.hits++;
       return getNodeDescendants(blockNode);
     }
 
@@ -296,6 +314,7 @@ export const createChain = (
       binPrefix.length * 2
     );
     if (!rootNode?.exhaustive) {
+      storageStats.misses++;
       const sourceDescendants = await source.getStorageDescendants(prefix);
       if (!Object.keys(sourceDescendants).length)
         initialBlock.storageRoot = insertValue(
@@ -321,6 +340,8 @@ export const createChain = (
       )!;
       rootNode.exhaustive = true;
       forEachDescendant(rootNode, (node) => (node.exhaustive = true));
+    } else {
+      storageStats.hits++;
     }
 
     // There's a temptation to propagate this exhaustive to the blockNode
@@ -440,6 +461,8 @@ export const createChain = (
     getBlock,
     newBlock,
     changeFinalized,
+    storageStats,
+    resetStats,
     setStorage,
     getStorage,
     getStorageBatch,
