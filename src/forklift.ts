@@ -226,14 +226,14 @@ export function forklift(
     umpMsg: umpSubject,
     hrmpMsg: hrmpSubject,
   }).subscribe((evt) => {
-    logger.trace(`TxPool updated. Source ${evt.type}`);
+    logger.debug(`TxPool updated. Source ${evt.type}`);
 
-    logger.trace(options.buildBlockMode, `BuildBlockMode`);
+    logger.debug(options.buildBlockMode, `BuildBlockMode`);
     if (options.buildBlockMode.type === "manual") {
       return;
     }
     if (txBlockPending || blocksEnqueued) {
-      logger.trace(`New block already enqueued, skipping`);
+      logger.debug(`New block already enqueued, skipping`);
       return;
     }
 
@@ -245,7 +245,7 @@ export function forklift(
     setTimeout(() => {
       txBlockPending = false;
       if (blocksEnqueued) {
-        logger.trace(`New block already enqueued, skipping`);
+        logger.debug(`New block already enqueued, skipping`);
       } else {
         newBlock(undefined, true);
       }

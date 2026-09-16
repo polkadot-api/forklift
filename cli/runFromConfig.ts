@@ -12,7 +12,17 @@ import {
 } from "@polkadot-api/substrate-client";
 import { Binary, createClient, Enum, type HexString } from "polkadot-api";
 import { getWsRawProvider } from "polkadot-api/ws";
-import { catchError, finalize, from, mergeMap, repeat } from "rxjs";
+import {
+  catchError,
+  finalize,
+  from,
+  fromEvent,
+  map,
+  merge,
+  mergeMap,
+  repeat,
+  tap,
+} from "rxjs";
 import { createWsServer } from "../server/node";
 import { forklift, forkliftSource, fromWorker, wsSource } from "../src";
 import type {
@@ -205,17 +215,35 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
       .pipe(
         repeat(),
         mergeMap((block) => {
-          logWithKey.trace(`Preloading new block from ${block.hash}`);
-          const worker = new Worker("../src/executor/executor-worker");
+          logWithKey.debug(`Preloading new block from ${block.hash}`);
+          const worker = new Worker(
+            new URL("../src/executor/executor-worker.ts", import.meta.url)
+          );
+          const workerError$ = fromEvent(worker, "error").pipe(
+            map((v) => {
+              throw v;
+            })
+          );
+
           const subForklift = forklift(
             forkliftSource(f, {
               atBlock: block.hash,
             }),
-            { logger: null, executor: fromWorker(worker) }
+            {
+              logger: null,
+              executor: fromWorker(worker),
+              disableOnIdle: config.options?.disableOnIdle,
+            }
           );
 
-          return from(subForklift.newBlock()).pipe(
-            catchError(() => []),
+          return merge(from(subForklift.newBlock()), workerError$).pipe(
+            tap(() => {
+              logWithKey.debug(`Preloaded block from ${block.hash}`);
+            }),
+            catchError((ex) => {
+              logWithKey.warn(ex, `Preload block failed from ${block.hash}`);
+              return [];
+            }),
             finalize(() => {
               subForklift.destroy();
               worker.terminate();

@@ -118,7 +118,7 @@ export const setValidationDataInherent = async (
   )
     return null;
 
-  const txCodec = getTxCodec(
+  const txCodec = await getTxCodec(
     parentBlock,
     "ParachainSystem",
     "set_validation_data"
@@ -135,7 +135,8 @@ export const setValidationDataInherent = async (
   });
   const prevValidationDataExt =
     prevValidationDataRaw && txDec(prevValidationDataRaw);
-  const prevValidationData = prevValidationDataExt?.call.value.value.data;
+  const prevCallArgs = prevValidationDataExt?.call.value.value;
+  const prevValidationData = prevCallArgs?.data;
 
   if (!prevValidationData) {
     throw new Error("TODO no prevValidationData in previous block");
@@ -366,33 +367,50 @@ export const setValidationDataInherent = async (
     relay_parent_descendants: updatedDescendants,
   };
 
-  const inbound_messages_data = {
+  const horizontalMessages = allIngressSenders.map(
+    (senderId) =>
+      [
+        senderId,
+        (xcm.hrmp[senderId] ?? []).map((data) => ({
+          sent_at: nextRelayNumber,
+          data,
+        })),
+      ] as const
+  );
+
+  const inboundMessagesData = {
     downward_messages: {
       full_messages: xcm.dmp,
       hashed_messages: [],
     },
     horizontal_messages: {
-      full_messages: allIngressSenders.flatMap((senderId) =>
-        (xcm.hrmp[senderId] ?? []).map((data) => [
-          senderId,
-          {
-            sent_at: nextRelayNumber,
-            data,
-          },
-        ])
+      full_messages: horizontalMessages.flatMap(([senderId, messages]) =>
+        messages.map((message) => [senderId, message])
       ),
       hashed_messages: [],
     },
   };
 
+  // Older runtimes include inbound messages in the single `data` argument.
+  // Newer runtimes receive them in a separate `inbound_messages_data` argument.
+  const callArgs = Object.hasOwn(prevCallArgs, "inbound_messages_data")
+    ? {
+        data,
+        inbound_messages_data: inboundMessagesData,
+      }
+    : {
+        data: {
+          ...data,
+          downward_messages: xcm.dmp,
+          horizontal_messages: horizontalMessages,
+        },
+      };
+
   const callData = await getCallData(
     parentBlock,
     "ParachainSystem",
     "set_validation_data",
-    {
-      data,
-      inbound_messages_data,
-    },
+    callArgs,
     chain.logger
   );
   return unsignedExtrinsic(callData!);
