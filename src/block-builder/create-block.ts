@@ -234,7 +234,10 @@ const buildBlock = async (
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
-      log.debug("apply extrinsic " + Binary.toHex(extrinsic));
+      const extrinsicHex = Binary.toHex(extrinsic);
+      log.debug("apply extrinsic " + extrinsicHex.slice(0, 100));
+      if (extrinsicHex.length > 100)
+        log.trace("extrinsic detail" + extrinsicHex);
       const applyResponse = await chain.executor.runRuntimeCall({
         storage: blockStorage(chain, parentHash),
         call: "BlockBuilder_apply_extrinsic",

@@ -154,6 +154,7 @@ Each chain config supports the following fields:
 ```yaml
 options:
   disableOnIdle: false
+  processQueuedMessages: true
   buildBlockMode:
     timer: 100
   finalizeMode:
@@ -165,6 +166,9 @@ Supported values:
 
 - `disableOnIdle: boolean`
   Disables `on_idle` hooks during block production. Some runtimes might perform actions that take a long time as they perform multiple serial storage queries. Setting this option to `true` disables that hook, which can increase the speed blocks can be produced.
+
+- `processQueuedMessages: boolean`
+  Builds a follow-up block when an inbound DMP or HRMP message is left pending in `MessageQueue`. Defaults to `true`.
 
 - `buildBlockMode`
   Controls when new blocks are built after transactions arrive.
@@ -203,7 +207,7 @@ Supported values:
 
 Notes:
 
-- `manual` means forklift only changes state when you explicitly drive it
+- `manual` means forklift only starts block production when you explicitly drive it; when `processQueuedMessages` is enabled, processing an inbound message can produce one follow-up block
 - `{ timer: 0 }` is allowed and means immediate scheduling
 - if `port` is omitted, forklift will choose a free port automatically
 

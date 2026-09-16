@@ -42,6 +42,7 @@ export type ParsedChainConfig = {
     buildBlockMode?: DelayModeConfig;
     finalizeMode?: DelayModeConfig;
     mockSignatureHost?: boolean;
+    processQueuedMessages?: boolean;
   };
   storage?: StorageOverride[];
   preloadBlocks?: boolean;
@@ -176,6 +177,13 @@ function parseChainConfig(raw: unknown, name: string): ParsedChainConfig {
       options.mockSignatureHost = Boolean(o.mockSignatureHost);
     if (o.disableOnIdle !== undefined)
       options.disableOnIdle = Boolean(o.disableOnIdle);
+    if (o.processQueuedMessages !== undefined) {
+      if (typeof o.processQueuedMessages !== "boolean")
+        throw new Error(
+          `${name}.options.processQueuedMessages must be a boolean`
+        );
+      options.processQueuedMessages = o.processQueuedMessages;
+    }
     if (o.buildBlockMode !== undefined)
       options.buildBlockMode = validateDelayMode(
         o.buildBlockMode,

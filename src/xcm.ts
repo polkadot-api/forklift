@@ -20,6 +20,21 @@ import type { Chain } from "./chain";
 import { getConstant, getStorageCodecs } from "./codecs";
 import { getNode, insertValue } from "./storage";
 
+export const hasQueuedMessages = async (chain: Chain, hash: HexString) => {
+  const block = chain.getBlock(hash);
+  if (!block) throw new Error("Block not found");
+
+  const codecs = await getStorageCodecs(block, "MessageQueue", "BookStateFor");
+  if (!codecs) return false;
+
+  const books = await chain.getStorageDescendants(hash, codecs.keys.enc());
+  return Object.values(books).some(({ value }) => {
+    if (!value) return false;
+    const book = codecs.value.dec(value);
+    return book.size > 0 && book.end > book.begin;
+  });
+};
+
 /**
  * Attaches the current forklift as a parachain to a forklift relay chain.
  */

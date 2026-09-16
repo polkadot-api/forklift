@@ -17,7 +17,7 @@ import type { RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import type { Source } from "./source";
 import { createTxPool } from "./txPool";
-import { pushUmp } from "./xcm";
+import { hasQueuedMessages, pushUmp } from "./xcm";
 
 export interface NewBlockOptions {
   unsafeBlockHeight?: number;
@@ -59,6 +59,7 @@ export type DelayMode = Enum<{
 export interface ForkliftOptions {
   buildBlockMode: DelayMode;
   finalizeMode: DelayMode;
+  processQueuedMessages: boolean;
   disableOnIdle?: boolean;
   mockSignatureHost?: boolean;
   rpcOverrides: Record<string, RpcMethod | null>;
@@ -69,6 +70,7 @@ export interface ForkliftOptions {
 const defaultOptions: ForkliftOptions = {
   buildBlockMode: Enum("timer", 100),
   finalizeMode: Enum("timer", 2000),
+  processQueuedMessages: true,
   rpcOverrides: {},
   executor,
   logger: createLogger(),
@@ -198,6 +200,19 @@ export function forklift(
           finalizeTimers.delete(timer);
         }, options.finalizeMode.value);
         finalizeTimers.add(timer);
+      }
+
+      if (
+        options.processQueuedMessages &&
+        (await hasQueuedMessages(chain, block.hash))
+      ) {
+        newBlock({
+          ...opts,
+          transactions: undefined,
+          unsafeBlockHeight: undefined,
+          storage: {},
+          parent: block.hash,
+        });
       }
 
       return block.hash;

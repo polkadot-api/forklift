@@ -28,6 +28,7 @@ export const forklift_changeOptions: RpcMethod<{
     finalizeMode?: DelayMode;
     disableOnIdle?: boolean;
     mockSignatureHost?: boolean;
+    processQueuedMessages?: boolean;
   };
 }> = async (con, req, { changeOptions }) => {
   const { options } = getParams(req, ["options"]);

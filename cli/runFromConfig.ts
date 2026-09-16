@@ -131,6 +131,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
           : Enum("timer", config.options.finalizeMode.timer)),
       disableOnIdle: config.options?.disableOnIdle,
       mockSignatureHost: config.options?.mockSignatureHost,
+      processQueuedMessages: config.options?.processQueuedMessages,
       logger: logWithKey,
     }
   );
