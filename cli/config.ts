@@ -112,7 +112,7 @@ function parseStorageEntry(entry: unknown, idx: number): StorageOverride {
   }
 
   throw new Error(
-    `storage[${idx}]: must have either "key" (raw hex) or "pallet"+"storage" (decoded)`
+    `storage[${idx}]: must have either "key" (raw hex) or "pallet"+"entry" (decoded)`
   );
 }
 
@@ -277,7 +277,7 @@ const parseNumber = (value: unknown) => {
   if (typeof value === "number") return value;
   if (typeof value !== "string") return null;
   const valueStr = value.replaceAll("_", "");
-  return valueStr.startsWith("0x") || Number.isNaN(valueStr)
+  return valueStr.startsWith("0x") || Number.isNaN(Number(valueStr))
     ? null
     : Number(valueStr);
 };

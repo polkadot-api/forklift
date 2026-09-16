@@ -102,7 +102,7 @@ options:
   finalizeMode:
     timer: 2000
 storage:
-  - key: 0x1234567890
+  - key: "0x1234567890"
     value: null
 ```
 
@@ -115,12 +115,12 @@ chains:
     port: 3000
 
   assetHub:
-    endpoint: wss://sys.ibp.network/asset-hub-polkadot
+    endpoint: wss://polkadot-asset-hub-rpc.polkadot.io
     port: 3001
     parachainOf: relay
 
   bridgeHub:
-    endpoint: wss://sys.ibp.network/bridge-hub-polkadot
+    endpoint: wss://polkadot-bridge-hub-rpc.polkadot.io
     port: 3002
     parachainOf: relay
 ```
@@ -250,7 +250,7 @@ storage:
   - pallet: System
     entry: Account
     key:
-      - 14GjNs7Lw7nVbJrL8aL8m8m4vY2mQ2L9mQf8u2YpK9nQx7aD
+      - 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
     value:
       providers: 1
       consumers: 0
