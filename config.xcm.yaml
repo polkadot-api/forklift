@@ -13,24 +13,53 @@ chains:
     storage:
       - pallet: Assets
         entry: Asset
-        key: [1984]
+        key:
+          - 1984
         value:
-          {
-            "owner": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
-            "issuer": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
-            "admin": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
-            "freezer": "13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB",
-            "supply": "13_140_000_000_000__000_000n",
-            "deposit": "2_019__000_000n",
-            "min_balance": "1_000_000__000_000n",
-            "is_sufficient": false,
-            "accounts": 2,
-            "sufficients": 0,
-            "approvals": 0,
-            "status": { "type": "Live" },
-          }
+          owner: 13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB
+          issuer: 13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB
+          admin: 13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB
+          freezer: 13UVJyLnbVp9RBZYFwFGyDvVd1y27Tt8tkntv6Q7JVPhFsTB
+          supply: 13_140_000_000_000__000_000n
+          deposit: 2_019__000_000n
+          min_balance: 1_000_000__000_000n
+          is_sufficient: false
+          accounts: 2
+          sufficients: 0
+          approvals: 0
+          status:
+            type: Live
+      - pallet: ForeignAssets
+        entry: Account
+        key:
+          - parents: 1
+            interior:
+              type: X2
+              value:
+                - type: Parachain
+                  value: 2034
+                - type: GeneralIndex
+                  value: 222
+          - 16JGzEsi8gcySKjpmxHVrkLTHdFHodRepEz8n244gNZpr9J
+        value:
+          balance: 33__333_200_000_000_000_000n
+          status:
+            type: Liquid
+          reason:
+            type: Sufficient
+      # Alternatively, pass in raw key + value, omitting pallet + entry
+      # - key: "0x30e64a56026f4b5e3c2d196283a9a17db99d880ec681799c0cf30e8886371da97513fd0e7ff280bfad87ebd14a4684a8010200c91f057903ea6db163469f6e15517825a6290f5c96040a61ca8223dcb3c203b27167fdee611801375fff6c6f25c71c3e3ca86cea65"
+      #   value: "0x00000d0bcb5097ce01000000000000000001"
+    preloadBlocks: true
+    disableOnIdle: true
+    options:
+      mockSignatureHost: true
 
   hydration:
-    endpoint: wss://rpc.helikon.io/hydradx
+    endpoint: wss://hydration.rotko.net
     port: 3002
     parachainOf: polkadot
+    preloadBlocks: true
+    disableOnIdle: true
+    options:
+      mockSignatureHost: true

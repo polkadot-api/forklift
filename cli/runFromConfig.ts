@@ -10,10 +10,21 @@ import {
   createClient as createRawClient,
   type SubstrateClient,
 } from "@polkadot-api/substrate-client";
-import { Binary, Enum, type HexString } from "polkadot-api";
-import { createWsClient, getWsRawProvider } from "polkadot-api/ws";
+import { Binary, createClient, Enum, type HexString } from "polkadot-api";
+import { getWsRawProvider } from "polkadot-api/ws";
+import {
+  catchError,
+  finalize,
+  from,
+  fromEvent,
+  map,
+  merge,
+  mergeMap,
+  repeat,
+  tap,
+} from "rxjs";
 import { createWsServer } from "../server/node";
-import { forklift, wsSource } from "../src";
+import { forklift, forkliftSource, fromWorker, wsSource } from "../src";
 import type {
   ParsedChainConfig,
   ParsedConfig,
@@ -94,7 +105,8 @@ const rawClientRequest = (
   );
 
 const startChain = async (config: ParsedChainConfig, key?: string) => {
-  const logWithKey = log ? log.child({ chain: key }) : log;
+  const logWithKey = key ? log.child({ chain: key }) : log;
+
   logWithKey.info(
     `Forking ${config.endpoint}${
       config.block !== undefined ? ` at block ${config.block}` : ""
@@ -104,6 +116,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
   const f = forklift(
     wsSource(config.endpoint, {
       atBlock: config.block,
+      logger: logWithKey,
     }),
     {
       buildBlockMode:
@@ -118,6 +131,8 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
           : Enum("timer", config.options.finalizeMode.timer)),
       disableOnIdle: config.options?.disableOnIdle,
       mockSignatureHost: config.options?.mockSignatureHost,
+      processQueuedMessages: config.options?.processQueuedMessages,
+      logger: logWithKey,
     }
   );
 
@@ -125,7 +140,7 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
 
   if (config.storage) {
     logWithKey.info(`Waiting for initial block`);
-    const client = createWsClient(`ws://localhost:${server.port}`);
+    const client = createClient(f.serve);
     const finalized = await client.getFinalizedBlock();
 
     logWithKey.info(`Overriding storage`);
@@ -193,6 +208,52 @@ const startChain = async (config: ParsedChainConfig, key?: string) => {
       server.port
     }`
   );
+
+  if (config.preloadBlocks) {
+    logWithKey.info(`Setting up block preload`);
+    const client = createClient(f.serve);
+    client.blocks$
+      .pipe(
+        repeat(),
+        mergeMap((block) => {
+          logWithKey.debug(`Preloading new block from ${block.hash}`);
+          const worker = new Worker(
+            new URL("../src/executor/executor-worker.ts", import.meta.url)
+          );
+          const workerError$ = fromEvent(worker, "error").pipe(
+            map((v) => {
+              throw v;
+            })
+          );
+
+          const subForklift = forklift(
+            forkliftSource(f, {
+              atBlock: block.hash,
+            }),
+            {
+              logger: null,
+              executor: fromWorker(worker),
+              disableOnIdle: config.options?.disableOnIdle,
+            }
+          );
+
+          return merge(from(subForklift.newBlock()), workerError$).pipe(
+            tap(() => {
+              logWithKey.debug(`Preloaded block from ${block.hash}`);
+            }),
+            catchError((ex) => {
+              logWithKey.warn(ex, `Preload block failed from ${block.hash}`);
+              return [];
+            }),
+            finalize(() => {
+              subForklift.destroy();
+              worker.terminate();
+            })
+          );
+        })
+      )
+      .subscribe();
+  }
 
   return [key, server.port!] as const;
 };

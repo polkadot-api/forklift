@@ -102,7 +102,7 @@ options:
   finalizeMode:
     timer: 2000
 storage:
-  - key: 0x1234567890
+  - key: "0x1234567890"
     value: null
 ```
 
@@ -115,12 +115,12 @@ chains:
     port: 3000
 
   assetHub:
-    endpoint: wss://sys.ibp.network/asset-hub-polkadot
+    endpoint: wss://polkadot-asset-hub-rpc.polkadot.io
     port: 3001
     parachainOf: relay
 
   bridgeHub:
-    endpoint: wss://sys.ibp.network/bridge-hub-polkadot
+    endpoint: wss://polkadot-bridge-hub-rpc.polkadot.io
     port: 3002
     parachainOf: relay
 ```
@@ -137,14 +137,15 @@ That makes the config suitable for relay/parachain and parachain/parachain XCM t
 
 Each chain config supports the following fields:
 
-| Field         | Type                 | Description                                         |
-| ------------- | -------------------- | --------------------------------------------------- |
-| `endpoint`    | `string \| string[]` | Remote WebSocket endpoint or endpoints to fork from |
-| `block`       | `number \| string`   | Optional block number or block hash to fork from    |
-| `port`        | `number`             | Preferred local WebSocket port                      |
-| `parachainOf` | `string`             | Name of the relay chain in a multi-chain config     |
-| `options`     | `object`             | Forklift runtime options                            |
-| `storage`     | `array`              | Storage overrides applied after startup             |
+| Field           | Type                 | Description                                         |
+| --------------- | -------------------- | --------------------------------------------------- |
+| `endpoint`      | `string \| string[]` | Remote WebSocket endpoint or endpoints to fork from |
+| `block`         | `number \| string`   | Optional block number or block hash to fork from    |
+| `port`          | `number`             | Preferred local WebSocket port                      |
+| `parachainOf`   | `string`             | Name of the relay chain in a multi-chain config     |
+| `options`       | `object`             | Forklift runtime options                            |
+| `storage`       | `array`              | Storage overrides applied after startup             |
+| `preloadBlocks` | `boolean`            | Preload blocks for faster block creation            |
 
 ### `options`
 
@@ -153,16 +154,21 @@ Each chain config supports the following fields:
 ```yaml
 options:
   disableOnIdle: false
+  processQueuedMessages: true
   buildBlockMode:
     timer: 100
   finalizeMode:
     timer: 2000
+  mockSignatureHost: true
 ```
 
 Supported values:
 
 - `disableOnIdle: boolean`
   Disables `on_idle` hooks during block production. Some runtimes might perform actions that take a long time as they perform multiple serial storage queries. Setting this option to `true` disables that hook, which can increase the speed blocks can be produced.
+
+- `processQueuedMessages: boolean`
+  Builds a follow-up block when an inbound DMP or HRMP message is left pending in `MessageQueue`. Defaults to `true`.
 
 - `buildBlockMode`
   Controls when new blocks are built after transactions arrive.
@@ -196,11 +202,24 @@ Supported values:
     timer: 2000
   ```
 
+- `mockSignatureHost`
+  Sets up a flag to accept extrinsics with invalid proofs.
+
 Notes:
 
-- `manual` means forklift only changes state when you explicitly drive it
+- `manual` means forklift only starts block production when you explicitly drive it; when `processQueuedMessages` is enabled, processing an inbound message can produce one follow-up block
 - `{ timer: 0 }` is allowed and means immediate scheduling
 - if `port` is omitted, forklift will choose a free port automatically
+
+### Preload blocks
+
+Setting up `preloadBlocks` will make the CLI create new blocks in the background from every new tip of the forklift instance.
+
+Creating a block can be a slow operation because the runtime asks for storage values one-by-one, which adds round-trip latency to the source that can add up to dozens of seconds.
+
+`preloadBlocks` spins up a new fork in the background that doesn't affect the main one and simulates creating a new block as soon as any new tip is added to the original instance. This causes the storage entries that are likely to be requested on the next block to be loaded, greatly improving performance.
+
+It comes with the tradeoff that creating a block is resource-intensive, even when running in the background.
 
 ## Storage Overrides
 
@@ -231,7 +250,7 @@ storage:
   - pallet: System
     entry: Account
     key:
-      - 14GjNs7Lw7nVbJrL8aL8m8m4vY2mQ2L9mQf8u2YpK9nQx7aD
+      - 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
     value:
       providers: 1
       consumers: 0
@@ -256,16 +275,20 @@ You can also create a chain from code:
 
 ```ts
 import { forklift, wsSource } from "@polkadot-api/forklift";
+import pino from "pino";
 import { Enum } from "polkadot-api";
 
+const logger = pino({ level: "debug" }); // Optional, to customize the logger.
 const polkadot = forklift(
   wsSource("wss://rpc.polkadot.io", {
     atBlock: 22000000,
+    logger,
   }),
   {
     buildBlockMode: Enum("timer", 100),
     finalizeMode: Enum("timer", 2000),
     disableOnIdle: false,
+    logger,
   }
 );
 ```
@@ -316,6 +339,9 @@ Bun.serve({
   },
 });
 ```
+
+The supplied Pino logger receives all logs produced by that Forklift instance.
+When omitted, Forklift creates a default logger for the instance.
 
 ### `Forklift` interface
 

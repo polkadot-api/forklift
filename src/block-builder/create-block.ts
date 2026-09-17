@@ -8,13 +8,13 @@ import {
   u64,
   Variant,
 } from "@polkadot-api/substrate-bindings";
+import type { Logger } from "pino";
 import { Binary, Enum, type BlockHeader, type HexString } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Chain } from "../chain";
 import { getCallCodec, getConstant, getStorageCodecs } from "../codecs";
 import { blockStorage } from "../executor/chainToStorage";
 import type { RuntimeVersion } from "../executor/interface";
-import { logger } from "../logger";
 import {
   deleteValue,
   getNode,
@@ -25,8 +25,6 @@ import { paraInherentEnterInherent } from "./para-enter";
 import { setValidationDataInherent } from "./set-validation-data";
 import { getCurrentSlot } from "./slot-utils";
 import { timestampInherent } from "./timestamp";
-
-const log = logger.child({ module: "block-builder" });
 
 export interface CreateBlockParams {
   parent: HexString;
@@ -66,6 +64,7 @@ export const createBlock = async (
   chain: Chain,
   params: CreateBlockParams
 ): Promise<Block> => {
+  const log = chain.logger.child({ module: "block-builder" });
   // Determine parent block
   const parentHash = params.parent;
   const parent = chain.getBlock(parentHash);
@@ -100,6 +99,7 @@ export const createBlock = async (
 
   const result = await buildBlock(
     chain,
+    log,
     height,
     parent,
     extrinsics,
@@ -168,6 +168,7 @@ export const createBlock = async (
 
 const buildBlock = async (
   chain: Chain,
+  log: Logger,
   height: number,
   parent: Block,
   extrinsics: Uint8Array[],
@@ -211,6 +212,7 @@ const buildBlock = async (
   }
 
   log.debug("initialise block");
+  chain.resetStats();
   // Call Core_initialize_block
   const initResponse = await chain.executor.runRuntimeCall({
     storage: blockStorage(chain, parentHash),
@@ -218,6 +220,7 @@ const buildBlock = async (
     params: Binary.toHex(blockHeader.enc(provisionalHeader)),
     storageOverrides,
   });
+  const initStats = { ...chain.storageStats };
 
   // console.log("init storageDiff", Object.fromEntries(initResponse.storageDiff));
 
@@ -227,10 +230,14 @@ const buildBlock = async (
     ...Object.fromEntries(initResponse.storageDiff),
   };
 
+  chain.resetStats();
   const body: Uint8Array[] = [];
   for (const extrinsic of extrinsics) {
     try {
-      log.debug("apply extrinsic " + Binary.toHex(extrinsic));
+      const extrinsicHex = Binary.toHex(extrinsic);
+      log.debug("apply extrinsic " + extrinsicHex.slice(0, 100));
+      if (extrinsicHex.length > 100)
+        log.trace("extrinsic detail" + extrinsicHex);
       const applyResponse = await chain.executor.runRuntimeCall({
         storage: blockStorage(chain, parentHash),
         call: "BlockBuilder_apply_extrinsic",
@@ -263,6 +270,7 @@ const buildBlock = async (
       log.error(ex, "failed to apply extrinsic");
     }
   }
+  const applyExtrinsicStats = { ...chain.storageStats };
 
   log.debug("finalize block");
   let originalWeight:
@@ -272,6 +280,7 @@ const buildBlock = async (
       }
     | undefined;
 
+  chain.resetStats();
   if (disableIdleHook) {
     // on_idle hook only triggers if either:
     //  - no migrations are happenning
@@ -308,6 +317,17 @@ const buildBlock = async (
     params: "0x",
     storageOverrides,
   });
+  const finalizeStats = { ...chain.storageStats };
+
+  log.info(
+    {
+      initialize: initStats,
+      applyExtrinsic: applyExtrinsicStats,
+      finalize: finalizeStats,
+    },
+    "block creation storage stats"
+  );
+
   if (originalWeight) {
     storageOverrides[originalWeight.key] = originalWeight.value;
   }

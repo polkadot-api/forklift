@@ -1,3 +1,4 @@
+import type { Logger } from "pino";
 import { Binary, type HexString } from "polkadot-api";
 import {
   BehaviorSubject,
@@ -14,8 +15,7 @@ import {
   type CreateBlockParams,
 } from "./block-builder/create-block";
 import { setBlockMeta } from "./codecs";
-import type { Executor, RuntimeCallParams } from "./executor/interface";
-import { logger } from "./logger";
+import type { Executor } from "./executor/interface";
 import type { Source } from "./source";
 import {
   createRoot,
@@ -29,14 +29,13 @@ import {
   type StorageNode,
 } from "./storage";
 
-const log = logger.child({ module: "chain" });
-
 export interface Chain {
   blocks$: Observable<Record<HexString, Block>>;
   newBlocks$: Observable<HexString>;
   best$: Observable<HexString>;
   finalized$: Observable<HexString>;
   executor: Executor;
+  logger: Logger;
 
   getBlock: (hash: HexString) => Block | undefined;
 
@@ -47,6 +46,8 @@ export interface Chain {
     changes: Record<HexString, Uint8Array | null>
   ) => void;
 
+  storageStats: { hits: number; misses: number };
+  resetStats: () => void;
   getStorage: (hash: HexString, key: HexString) => Promise<StorageNode>;
   getStorageBatch: (
     hash: HexString,
@@ -72,7 +73,12 @@ export interface Chain {
 
 const CODE_KEY: HexString = "0x3a636f6465"; // hex-encoded ":code"
 
-export const createChain = (source: Source, executor: Executor): Chain => {
+export const createChain = (
+  source: Source,
+  executor: Executor,
+  logger: Logger
+): Chain => {
+  const log = logger.child({ module: "chain" });
   const blocks$ = new BehaviorSubject<Record<HexString, Block>>({});
   const newBlocks$ = new Subject<HexString>();
   const bestSrc$ = new BehaviorSubject<HexString | null>(null);
@@ -158,6 +164,15 @@ export const createChain = (source: Source, executor: Executor): Chain => {
     finalizedSrc$.next(hash);
   };
 
+  const storageStats = {
+    hits: 0,
+    misses: 0,
+  };
+  const resetStats = () => {
+    storageStats.hits = 0;
+    storageStats.misses = 0;
+  };
+
   const setStorage = (
     hash: HexString,
     changes: Record<HexString, Uint8Array | null>
@@ -197,8 +212,10 @@ export const createChain = (source: Source, executor: Executor): Chain => {
       getNode(initialBlock.storageRoot, binKey, binKey.length * 2);
 
     if (node?.value !== undefined) {
+      storageStats.hits++;
       return node;
     }
+    storageStats.misses++;
 
     const sourceResult = await source.getStorage(key);
     initialBlock.storageRoot = insertValue(
@@ -239,9 +256,13 @@ export const createChain = (source: Source, executor: Executor): Chain => {
       return null!;
     });
 
-    const loadedResults = await source.getStorageBatch(
-      pending.map(({ key }) => key)
-    );
+    if (pending.length) storageStats.misses++;
+    else storageStats.hits++;
+
+    const loadedResults = await (pending.length
+      ? source.getStorageBatch(pending.map(({ key }) => key))
+      : Promise.resolve([]));
+
     loadedResults.forEach((res, i) => {
       const { idx, binKey } = pending[i]!;
       initialBlock.storageRoot = insertValue(
@@ -283,6 +304,7 @@ export const createChain = (source: Source, executor: Executor): Chain => {
       binPrefix.length * 2
     );
     if (blockNode?.exhaustive) {
+      storageStats.hits++;
       return getNodeDescendants(blockNode);
     }
 
@@ -292,6 +314,7 @@ export const createChain = (source: Source, executor: Executor): Chain => {
       binPrefix.length * 2
     );
     if (!rootNode?.exhaustive) {
+      storageStats.misses++;
       const sourceDescendants = await source.getStorageDescendants(prefix);
       if (!Object.keys(sourceDescendants).length)
         initialBlock.storageRoot = insertValue(
@@ -317,6 +340,8 @@ export const createChain = (source: Source, executor: Executor): Chain => {
       )!;
       rootNode.exhaustive = true;
       forEachDescendant(rootNode, (node) => (node.exhaustive = true));
+    } else {
+      storageStats.hits++;
     }
 
     // There's a temptation to propagate this exhaustive to the blockNode
@@ -394,7 +419,7 @@ export const createChain = (source: Source, executor: Executor): Chain => {
     const block = await createBlock(chain, params);
     const existingBlock = getBlock(block.hash);
     if (existingBlock) {
-      logger.info(`Discarding new block ${block.hash}: it already exists`);
+      log.info(`Discarding new block ${block.hash}: it already exists`);
       return existingBlock;
     }
 
@@ -432,9 +457,12 @@ export const createChain = (source: Source, executor: Executor): Chain => {
     best$: best$,
     finalized$: finalized$,
     executor,
+    logger,
     getBlock,
     newBlock,
     changeFinalized,
+    storageStats,
+    resetStats,
     setStorage,
     getStorage,
     getStorageBatch,

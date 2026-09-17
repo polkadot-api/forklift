@@ -1,22 +1,23 @@
 import { type JsonRpcProvider } from "@polkadot-api/substrate-client";
+import { mergeWithKey } from "@react-rxjs/utils";
+import type { Logger } from "pino";
+import pino from "pino";
 import { Enum, type HexString } from "polkadot-api";
-import { firstValueFrom, merge, Subject } from "rxjs";
+import { firstValueFrom, Subject } from "rxjs";
 import type {
   CreateBlockParams,
   DmpMessage,
 } from "./block-builder/create-block";
 import { createChain } from "./chain";
-import { logger } from "./logger";
+import { executor } from "./executor/executor";
+import type { Executor } from "./executor/interface";
+import { createLogger } from "./logger";
 import { runPrequeries } from "./prequeries";
 import type { RpcMethod, ServerContext } from "./rpc/rpc_utils";
 import { createServer } from "./serve";
 import type { Source } from "./source";
 import { createTxPool } from "./txPool";
-import { pushUmp } from "./xcm";
-import type { Executor } from "./executor/interface";
-import { executor } from "./executor/executor";
-
-const log = logger.child({ module: "forklift" });
+import { hasQueuedMessages, pushUmp } from "./xcm";
 
 export interface NewBlockOptions {
   unsafeBlockHeight?: number;
@@ -44,7 +45,9 @@ export interface Forklift {
     Record<string, { value: Uint8Array | null; prev?: Uint8Array | null }>
   >;
 
-  changeOptions: (options: Partial<Omit<ForkliftOptions, "executor">>) => void;
+  changeOptions: (
+    options: Partial<Omit<ForkliftOptions, "executor" | "logger">>
+  ) => void;
   destroy: () => void;
 }
 
@@ -56,17 +59,21 @@ export type DelayMode = Enum<{
 export interface ForkliftOptions {
   buildBlockMode: DelayMode;
   finalizeMode: DelayMode;
+  processQueuedMessages: boolean;
   disableOnIdle?: boolean;
   mockSignatureHost?: boolean;
   rpcOverrides: Record<string, RpcMethod | null>;
   executor: Executor;
+  logger: Logger | null;
 }
 
 const defaultOptions: ForkliftOptions = {
   buildBlockMode: Enum("timer", 100),
   finalizeMode: Enum("timer", 2000),
+  processQueuedMessages: true,
   rpcOverrides: {},
   executor,
+  logger: createLogger(),
 };
 
 type Timeout = ReturnType<typeof setTimeout>;
@@ -75,7 +82,9 @@ export function forklift(
   opts?: Partial<ForkliftOptions>
 ): Forklift {
   let options = { ...defaultOptions, ...removeUndefinedProperties(opts) };
-  const chain = createChain(source, options.executor);
+  const logger = options.logger ?? pino({ level: "silent" });
+  const log = logger.child({ module: "forklift" });
+  const chain = createChain(source, options.executor, logger);
   const txPool = createTxPool(chain, opts?.mockSignatureHost);
 
   runPrequeries(chain);
@@ -193,6 +202,19 @@ export function forklift(
         finalizeTimers.add(timer);
       }
 
+      if (
+        options.processQueuedMessages &&
+        (await hasQueuedMessages(chain, block.hash))
+      ) {
+        newBlock({
+          ...opts,
+          transactions: undefined,
+          unsafeBlockHeight: undefined,
+          storage: {},
+          parent: block.hash,
+        });
+      }
+
       return block.hash;
     } catch (ex) {
       logger.error(ex, "failed creating block");
@@ -213,15 +235,20 @@ export function forklift(
   };
 
   let txBlockPending = false;
-  const txPoolSub = merge(
-    txPool.txAdded$,
-    dmpSubject,
-    umpSubject,
-    hrmpSubject
-  ).subscribe(() => {
-    if (options.buildBlockMode.type === "manual") return;
+  const txPoolSub = mergeWithKey({
+    txPool: txPool.txAdded$,
+    dmpMsg: dmpSubject,
+    umpMsg: umpSubject,
+    hrmpMsg: hrmpSubject,
+  }).subscribe((evt) => {
+    logger.debug(`TxPool updated. Source ${evt.type}`);
+
+    logger.debug(options.buildBlockMode, `BuildBlockMode`);
+    if (options.buildBlockMode.type === "manual") {
+      return;
+    }
     if (txBlockPending || blocksEnqueued) {
-      // Another tx has triggered a new block, this will get included
+      logger.debug(`New block already enqueued, skipping`);
       return;
     }
 
@@ -232,7 +259,11 @@ export function forklift(
     txBlockPending = true;
     setTimeout(() => {
       txBlockPending = false;
-      if (!blocksEnqueued) newBlock(undefined, true);
+      if (blocksEnqueued) {
+        logger.debug(`New block already enqueued, skipping`);
+      } else {
+        newBlock(undefined, true);
+      }
     }, delay);
   });
 
@@ -242,7 +273,9 @@ export function forklift(
     pushHrmp: (paraId, messages) => hrmpSubject.next({ paraId, messages }),
   };
 
-  const changeOptions = (opts: Partial<ForkliftOptions>) => {
+  const changeOptions = (
+    opts: Partial<Omit<ForkliftOptions, "executor" | "logger">>
+  ) => {
     options = { ...options, ...removeUndefinedProperties(opts) };
     serve.setRpcOverrides(options.rpcOverrides);
   };
@@ -281,6 +314,9 @@ export function forklift(
       txPool.destroy();
       source.destroy();
     },
+    // @ts-expect-error
+    __chain: chain,
+    __source: source,
   };
 }
 

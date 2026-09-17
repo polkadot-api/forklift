@@ -18,6 +18,7 @@ storage:
   # Encoded against the chain's metadata at startup
   - pallet: System
     entry: Account
+    # The key must be an array
     key:
       - "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
     value:

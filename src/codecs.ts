@@ -10,14 +10,12 @@ import {
   unifyMetadata,
 } from "@polkadot-api/substrate-bindings";
 import { getExtrinsicDecoder as txUtilsExtrinsicDecoder } from "@polkadot-api/tx-utils";
+import type { Logger } from "pino";
 import { Binary } from "polkadot-api";
 import { mergeUint8 } from "polkadot-api/utils";
 import type { Block } from "./block-builder/create-block";
 import type { Chain } from "./chain";
 import { blockStorage } from "./executor/chainToStorage";
-import { logger } from "./logger";
-
-const log = logger.child({ module: "codecs" });
 
 type DynamicBuilder = ReturnType<typeof getDynamicBuilder>;
 const blockMeta = new WeakMap<
@@ -132,7 +130,8 @@ export const getCallData = async (
   block: Block,
   palletName: string,
   txName: string,
-  params: any
+  params: any,
+  logger: Logger
 ) => {
   const tx = await getTxCodec(block, palletName, txName);
   if (!tx) return null;
@@ -142,7 +141,7 @@ export const getCallData = async (
 
     return mergeUint8([new Uint8Array(location), codec.enc(params)]);
   } catch (ex) {
-    log.error(ex, "getCallData failed");
+    logger.child({ module: "codecs" }).error(ex, "getCallData failed");
     return null;
   }
 };

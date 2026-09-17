@@ -13,10 +13,7 @@ import {
 import type { Chain } from "../chain";
 import { getConstant, getStorageCodecs } from "../codecs";
 import { blockStorage } from "../executor/chainToStorage";
-import { logger } from "../logger";
 import type { Block } from "./create-block";
-
-const log = logger.child({ module: "slot-utils" });
 
 export const getSlotDuration = async (chain: Chain, block: Block) => {
   const babe = await getConstant(block, "Babe", "ExpectedBlockTime");
@@ -64,7 +61,9 @@ const getAuraSlotDuration = async (chain: Chain, block: Block) => {
     return u64.dec(result);
   } catch {}
 
-  log.error("couldn't get aura slot duration, defaulting to 12s");
+  chain.logger
+    .child({ module: "slot-utils" })
+    .error("couldn't get aura slot duration, defaulting to 12s");
   return 12_000n;
 };
 

@@ -1,8 +1,8 @@
 import { program } from "commander";
 import { createWsServer } from "../server/node";
-import { forklift, logger, wsSource } from "../src";
+import { forklift, wsSource } from "../src";
 import { loadConfig } from "./config.ts";
-import { log } from "./log.ts";
+import { log, logger } from "./log.ts";
 import { runFromConfig } from "./runFromConfig.ts";
 
 program
@@ -14,7 +14,7 @@ program
   .option(
     "-l, --log-level <level>",
     "log level (trace|debug|info|warn|error|fatal)",
-    "info"
+    process?.env?.LOG_LEVEL ?? "info"
   )
   .action(
     async (
@@ -40,7 +40,7 @@ program
 
       const port = parseInt(opts.port, 10);
 
-      const f = forklift(wsSource(url, { atBlock }));
+      const f = forklift(wsSource(url, { atBlock, logger }), { logger });
       const server = await createWsServer(f, { port });
 
       log.info(

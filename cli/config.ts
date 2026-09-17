@@ -42,8 +42,10 @@ export type ParsedChainConfig = {
     buildBlockMode?: DelayModeConfig;
     finalizeMode?: DelayModeConfig;
     mockSignatureHost?: boolean;
+    processQueuedMessages?: boolean;
   };
   storage?: StorageOverride[];
+  preloadBlocks?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -110,7 +112,7 @@ function parseStorageEntry(entry: unknown, idx: number): StorageOverride {
   }
 
   throw new Error(
-    `storage[${idx}]: must have either "key" (raw hex) or "pallet"+"storage" (decoded)`
+    `storage[${idx}]: must have either "key" (raw hex) or "pallet"+"entry" (decoded)`
   );
 }
 
@@ -171,8 +173,17 @@ function parseChainConfig(raw: unknown, name: string): ParsedChainConfig {
     if (typeof r.options !== "object" || r.options === null)
       throw new Error(`Chain "${name}": "options" must be an object`);
     const o = r.options as Record<string, unknown>;
+    if (o.mockSignatureHost !== undefined)
+      options.mockSignatureHost = Boolean(o.mockSignatureHost);
     if (o.disableOnIdle !== undefined)
       options.disableOnIdle = Boolean(o.disableOnIdle);
+    if (o.processQueuedMessages !== undefined) {
+      if (typeof o.processQueuedMessages !== "boolean")
+        throw new Error(
+          `${name}.options.processQueuedMessages must be a boolean`
+        );
+      options.processQueuedMessages = o.processQueuedMessages;
+    }
     if (o.buildBlockMode !== undefined)
       options.buildBlockMode = validateDelayMode(
         o.buildBlockMode,
@@ -205,6 +216,7 @@ function parseChainConfig(raw: unknown, name: string): ParsedChainConfig {
     }),
     ...(Object.keys(options).length > 0 && { options }),
     ...(storage.length > 0 && { storage }),
+    ...(r.preloadBlocks ? { preloadBlocks: true } : {}),
   };
 }
 
@@ -265,7 +277,7 @@ const parseNumber = (value: unknown) => {
   if (typeof value === "number") return value;
   if (typeof value !== "string") return null;
   const valueStr = value.replaceAll("_", "");
-  return valueStr.startsWith("0x") || Number.isNaN(valueStr)
+  return valueStr.startsWith("0x") || Number.isNaN(Number(valueStr))
     ? null
     : Number(valueStr);
 };

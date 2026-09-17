@@ -13,9 +13,6 @@ import type { Block } from "./block-builder/create-block";
 import { finalizedAndPruned$, type Chain } from "./chain";
 import { getCallCodec } from "./codecs";
 import { blockStorage } from "./executor/chainToStorage";
-import { logger } from "./logger";
-
-const log = logger.child({ module: "txPool" });
 
 type Validation = {
   provides: Set<HexString>;
@@ -142,8 +139,9 @@ export const createTxPool = (
 
         txPool.set(
           tx,
-          validateTx(block, tx).then((res) => {
+          validateTx(block, tx).then(async (res) => {
             if (!res.success) {
+              const log = (await chainP).logger.child({ module: "txPool" });
               log.error(
                 { blockHash: block.hash, reason: res.value },
                 "invalid transaction"
