@@ -17,6 +17,18 @@ export const createWsServer = (
     }>({
       port,
       fetch(req, server) {
+        if (req.method === "OPTIONS") {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Methods": "*",
+              "Access-Control-Allow-Headers": "*",
+              "Access-Control-Max-Age": "86400",
+            },
+          });
+        }
+
         const success = server.upgrade(req, { data: {} as any });
         if (success) {
           // Bun automatically returns a 101 Switching Protocols
