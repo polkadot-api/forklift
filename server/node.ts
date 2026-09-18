@@ -1,4 +1,5 @@
 import { WebSocketServer } from "ws";
+import { createServer } from "node:http";
 import type { Forklift } from "../src/forklift";
 
 export interface NodeWsServer {
@@ -14,7 +15,24 @@ export const createWsServer = async (
   let port = options?.port ? Number(options.port) : 9944;
 
   while (true) {
-    const wsServer = new WebSocketServer({ port });
+    const httpServer = createServer((req, res) => {
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Max-Age": "86400",
+        });
+        res.end();
+        return;
+      }
+
+      res.writeHead(426, {
+        "Content-Type": "text/plain",
+      });
+      res.end("Upgrade Required");
+    });
+    const wsServer = new WebSocketServer({ server: httpServer });
 
     wsServer.on("connection", (ws) => {
       const connection = forklift.serve((msg) => ws.send(JSON.stringify(msg)));
@@ -43,23 +61,24 @@ export const createWsServer = async (
     try {
       await new Promise<void>((resolve, reject) => {
         const onError = (error: unknown) => {
-          wsServer.off("listening", onListening);
+          httpServer.off("listening", onListening);
           reject(error);
         };
         const onListening = () => {
-          wsServer.off("error", onError);
+          httpServer.off("error", onError);
           resolve();
         };
 
-        wsServer.once("error", onError);
-        wsServer.once("listening", onListening);
+        httpServer.once("error", onError);
+        httpServer.once("listening", onListening);
+        httpServer.listen(port);
       });
-      const address = wsServer.address();
+      const address = httpServer.address();
       return {
         port: typeof address === "object" && address ? address.port : port,
       };
     } catch (ex: any) {
-      wsServer.close();
+      httpServer.close();
       if (ex?.code === "EADDRINUSE" && typeof port === "number") {
         port++;
         continue;
