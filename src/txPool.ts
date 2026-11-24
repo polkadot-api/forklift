@@ -3,6 +3,7 @@ import {
   combineLatest,
   firstValueFrom,
   from,
+  map,
   Subject,
   Subscription,
   switchMap,
@@ -39,6 +40,13 @@ export const createTxPool = (
 ): TxPool => {
   const blocksTxPool: Record<HexString, BlockTxPool> = {};
   const txAdded$ = new Subject<void>();
+  const aliveTxs = new Map<
+    Uint8Array,
+    {
+      pending: Set<HexString>;
+      valid: Set<HexString>;
+    }
+  >();
 
   const validateTx = async (
     block: Block,
@@ -95,6 +103,49 @@ export const createTxPool = (
     return heads;
   };
 
+  const evictIfDead = (tx: Uint8Array) => {
+    const status = aliveTxs.get(tx);
+    if (!status || status.pending.size || status.valid.size) return;
+    aliveTxs.delete(tx);
+    Object.values(blocksTxPool).forEach((blockTxPool) => blockTxPool.delete(tx));
+  };
+
+  const getValidation = (block: Block, tx: Uint8Array) => {
+    const validation = validateTx(block, tx).then(async (res) => {
+      if (!res.success) {
+        const log = (await chainP).logger.child({ module: "txPool" });
+        log.error(
+          { blockHash: block.hash, reason: res.value },
+          "invalid transaction"
+        );
+        throw res.value;
+      }
+      return {
+        priority: res.value.priority,
+        provides: new Set(res.value.provides.map(Binary.toHex)),
+        requires: new Set(res.value.requires.map(Binary.toHex)),
+      };
+    });
+    const txStatus = aliveTxs.get(tx) ?? {
+      pending: new Set(),
+      valid: new Set(),
+    };
+    aliveTxs.set(tx, txStatus);
+    txStatus.pending.add(block.hash);
+
+    const settle = (valid: boolean) => {
+      txStatus.pending.delete(block.hash);
+      // The block may have stopped being alive while validating
+      if (valid && blocksTxPool[block.hash]) txStatus.valid.add(block.hash);
+      evictIfDead(tx);
+    };
+    validation.then(
+      () => settle(true),
+      () => settle(false)
+    );
+    return validation;
+  };
+
   const subscription = new Subscription();
   subscription.add(
     from(Promise.resolve(chainP))
@@ -110,23 +161,37 @@ export const createTxPool = (
           blocksTxPool[block.parent] ?? new Map();
         const txPool: BlockTxPool = (blocksTxPool[block.hash] = new Map());
 
-        parentTxPool.forEach((validation, tx) => {
+        parentTxPool.forEach((_, tx) => {
           if (block.body.includes(tx)) return;
-          txPool.set(tx, validation);
+          txPool.set(tx, getValidation(block, tx));
         });
       })
   );
   subscription.add(
     from(Promise.resolve(chainP))
-      .pipe(switchMap((chain) => finalizedAndPruned$(chain)))
-      .subscribe(({ pruned }) =>
-        pruned.forEach((hash) => {
-          const txPool = blocksTxPool[hash];
-          if (!txPool) return;
-          txPool.clear();
-          delete blocksTxPool[hash];
-        })
+      .pipe(
+        switchMap((chain) =>
+          finalizedAndPruned$(chain).pipe(
+            map(({ finalized, pruned }) => [
+              ...pruned,
+              // The previous finalized and the newly finalized ancestors aren't alive anymore
+              chain.getBlock(finalized[0]!)!.parent,
+              ...finalized.slice(0, -1),
+            ])
+          )
+        )
       )
+      .subscribe((dead) => {
+        dead.forEach((hash) => {
+          aliveTxs.forEach((tx) => {
+            tx.pending.delete(hash);
+            tx.valid.delete(hash);
+          });
+          blocksTxPool[hash]?.clear();
+          delete blocksTxPool[hash];
+        });
+        [...aliveTxs.keys()].forEach(evictIfDead);
+      })
   );
 
   return {
@@ -137,24 +202,7 @@ export const createTxPool = (
         const txPool = (blocksTxPool[block.hash] ??= new Map());
         if (txPool.has(tx)) return;
 
-        txPool.set(
-          tx,
-          validateTx(block, tx).then(async (res) => {
-            if (!res.success) {
-              const log = (await chainP).logger.child({ module: "txPool" });
-              log.error(
-                { blockHash: block.hash, reason: res.value },
-                "invalid transaction"
-              );
-              throw res.value;
-            }
-            return {
-              priority: res.value.priority,
-              provides: new Set(res.value.provides.map(Binary.toHex)),
-              requires: new Set(res.value.requires.map(Binary.toHex)),
-            };
-          })
-        );
+        txPool.set(tx, getValidation(block, tx));
       });
 
       txAdded$.next();
@@ -173,13 +221,6 @@ export const createTxPool = (
         })
       );
 
-      // prune invalid transactions from the block
-      awaitedTxs.forEach((tx) => {
-        if (tx.validation == null) {
-          blockTxPool.delete(tx.tx);
-        }
-      });
-
       const validTxs = awaitedTxs.filter((v) => v.validation != null);
 
       return sortValidatedTxs(validTxs);
@@ -190,6 +231,7 @@ export const createTxPool = (
         blocksTxPool[hash]!.clear();
         delete blocksTxPool[hash];
       }
+      aliveTxs.clear();
     },
     txAdded$: txAdded$.asObservable(),
   };
